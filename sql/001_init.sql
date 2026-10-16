@@ -6,6 +6,7 @@ CREATE TABLE bjj.events (
     source_event_id       text        NOT NULL,
     fingerprint           text        NOT NULL,
     name                  text        NOT NULL,
+    edition               text,
     start_date            date,
     end_date              date,
     city                  text,
@@ -14,6 +15,7 @@ CREATE TABLE bjj.events (
     venue                 text,
     organizer             text,
     modality              text[]      NOT NULL DEFAULT '{}',
+    event_url             text,
     registration_url      text,
     registration_deadline date,
     status                text        NOT NULL DEFAULT 'open'

@@ -1,0 +1,11 @@
+# Um bloco por site. Cada bloco vira uma DAG crawl_<name>.
+#   url:      página fixa que lista os campeonatos
+#   parser:   módulo em crawler/parsers/
+#   schedule: agenda do Airflow (cron ou preset como @daily)
+#   js:       true se a listagem só aparece depois de rodar JavaScript
+
+- name: soucompetidor
+  url: https://soucompetidor.com.br/pt-br/
+  parser: soucompetidor
+  schedule: "@daily"
+  js: false
