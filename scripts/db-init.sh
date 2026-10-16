@@ -12,8 +12,8 @@ apply_migrations() {
 	local project=$1 prefix=$2 dir=$3
 	for file in "$dir"/*.sql; do
 		[ -e "$file" ] || continue
-		local key="$prefix/$(basename "$file")"
-		local applied
+		local key applied
+		key="$prefix/$(basename "$file")"
 		applied=$(psql -d "$project" -tAc "SELECT 1 FROM public.schema_migrations WHERE filename = '$key'")
 		[ "$applied" = "1" ] && continue
 		echo "  aplicando $key"

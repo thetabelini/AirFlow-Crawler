@@ -32,7 +32,11 @@ Cada assunto é um **projeto** em `projects/<nome>/`, com banco, pool e DAGs pr�
 
 A imagem do Airflow é estendida no `Dockerfile` com `httpx`, `selectolax`, `psycopg` e Playwright + Chromium.
 
-## Rodando
+## Deploy na Oracle Cloud
+
+Passo a passo em [docs/deploy-oracle.md](docs/deploy-oracle.md): criar a VM, abrir as portas, `scripts/setup-vm.sh`, subir e configurar o backup diário (`scripts/backup.sh`).
+
+## Rodando localmente
 
 Precisa de Docker com o plugin compose. Crie o `.env` (as senhas e chaves são geradas na hora):
 
@@ -118,6 +122,9 @@ BJJ_TEST_DATABASE_URL=postgresql://bjj:<senha>@localhost:5432/bjj .venv/bin/pyte
 docker-compose.yml, Dockerfile, Caddyfile, .env.example   plataforma
 requirements.txt, requirements-dev.txt, pytest.ini
 scripts/db-init.sh     cria os bancos dos projetos e aplica as migrações
+scripts/setup-vm.sh    prepara a VM da Oracle (firewall, swap, Docker)
+scripts/backup.sh      backup diário dos bancos (local e, opcional, Object Storage)
+docs/                  deploy na Oracle
 dags/dag_factory.py    uma DAG por fonte de cada projeto
 core/                  fetch, leitura dos projetos, banco, funções de texto
 core/sql/              migrações aplicadas em todo projeto (crawl_runs)
