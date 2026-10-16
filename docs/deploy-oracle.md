@@ -21,9 +21,36 @@ Console → **Compute → Instances → Create instance**:
 | SSH keys | *Upload public key files* → `~/.ssh/id_ed25519.pub` |
 | Boot volume | *Specify a custom boot volume size* → **100 GB** |
 
-Clique em **Create**. Se aparecer **Out of capacity**, tente outro *Availability domain* na mesma tela, ou tente de novo mais tarde.
+Clique em **Create**. Se aparecer **Out of capacity**, veja [Sem capacidade para A1](#sem-capacidade-para-a1).
 
 Quando ficar *Running*, anote o **Public IP address**.
+
+### Limite gratuito do A1
+
+O Always Free cobre **4 OCPU e 24 GB de A1 no total**, somando todas as instâncias A1 que não foram terminadas, inclusive as paradas. Numa conta Pay As You Go, o que passar disso é cobrado. Se já existe outra instância A1 (em **Compute → Instances**, coluna *Shape*), termine-a se não for usar, ou peça só o que sobra.
+
+### Sem capacidade para A1
+
+"Out of capacity" quer dizer que a Oracle não tem máquinas A1 livres na região naquele momento; trocar o tamanho do disco não muda nada. Em regiões com um só availability domain, como São Paulo, o caminho é tentar até conseguir. O `scripts/oci-retry-launch.sh` faz isso do seu computador, a cada 2 minutos, e para quando a VM é criada. Ele também confere o limite gratuito antes de começar.
+
+1. Instale e configure o OCI CLI:
+   ```bash
+   sudo apt install -y pipx && pipx install oci-cli && pipx ensurepath   # abra um terminal novo depois
+   oci setup config
+   ```
+   O `oci setup config` pede o OCID do usuário (console → ícone de perfil → **My profile**), o OCID da tenancy (ícone de perfil → **Tenancy**) e a região (`sa-saopaulo-1`). Aceite gerar a chave de API e depois cadastre a pública: **My profile → API keys → Add API key → Paste a public key**, com o conteúdo de `~/.oci/oci_api_key_public.pem`. Teste com `oci iam region list`.
+2. Descubra a subnet pública. As tentativas pelo console costumam deixar uma VCN criada:
+   ```bash
+   oci network subnet list -c <OCID-da-tenancy> --query 'data[].{nome:"display-name",id:id}' --output table
+   ```
+   Se não houver nenhuma, crie em **Networking → Virtual cloud networks → Start VCN Wizard → Create VCN with Internet Connectivity**.
+3. Rode e deixe trabalhando (de madrugada, por exemplo):
+   ```bash
+   COMPARTMENT_ID=<OCID-da-tenancy> SUBNET_ID=<OCID-da-subnet-pública> bash scripts/oci-retry-launch.sh
+   ```
+   Para pedir menos: `OCPUS=2 MEMORY_GB=12`. A VM pode ser aumentada depois em **Instance → Edit → Shape** (ela reinicia).
+
+Quando o script terminar, ele mostra o IP público. Siga para o passo 2.
 
 ## 2. Abrir as portas 80 e 443
 
