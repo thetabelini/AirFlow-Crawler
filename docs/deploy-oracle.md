@@ -99,7 +99,15 @@ cat .env      # anote DOMAIN e AIRFLOW_ADMIN_PASSWORD
 docker compose up -d --build
 ```
 
-O primeiro build leva alguns minutos. Acompanhe com `docker compose ps` até todos ficarem `healthy` (o `db-init` e o `airflow-init` aparecem como `exited (0)`, o que é o esperado).
+**VM pequena (1 OCPU e 4 GB):** antes do `up`, ative o perfil reduzido (1 processo na API, paralelismo 2, sem triggerer e limites de memória menores):
+
+```bash
+echo "COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml" >> .env
+```
+
+Medido com a DAG do BJJ rodando, a stack usa cerca de 1,3 GB. Quando a VM crescer, apague essa linha do `.env` e rode `docker compose up -d`.
+
+O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe com `docker compose ps` até todos ficarem `healthy` (o `db-init` e o `airflow-init` aparecem como `exited (0)`, o que é o esperado).
 
 **Domínio:** `<ip-com-traços>.sslip.io` é um endereço gratuito que aponta para o IP da VM, e o Caddy consegue emitir um certificado HTTPS válido para ele. Se tiver um domínio próprio, crie um registro `A` apontando para o IP e use-o no `DOMAIN`.
 

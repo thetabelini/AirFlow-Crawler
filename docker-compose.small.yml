@@ -1,0 +1,30 @@
+# Perfil para VM pequena (1 OCPU, 4 GB de RAM + swap). Ative com uma linha no .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml
+# Quando a VM crescer, apague essa linha e rode "docker compose up -d" de novo.
+
+services:
+  postgres:
+    mem_limit: 768m
+
+  airflow-apiserver:
+    environment:
+      # O padrão são 4 processos da API; 1 basta para uma pessoa usando a interface.
+      AIRFLOW__API__WORKERS: "1"
+    mem_limit: 1g
+
+  airflow-scheduler:
+    environment:
+      AIRFLOW__CORE__PARALLELISM: "2"
+    mem_limit: 2g
+
+  airflow-dag-processor:
+    environment:
+      AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES: "1"
+    mem_limit: 512m
+
+  # Nenhuma DAG usa tasks deferrable; o triggerer só sobe com --profile triggerer.
+  airflow-triggerer:
+    profiles: ["triggerer"]
+
+  caddy:
+    mem_limit: 128m

@@ -150,3 +150,5 @@ projects/
 | caddy | 256 MB |
 
 Sobram uns 10 GB para o sistema e para aumentar o paralelismo (`AIRFLOW__CORE__PARALLELISM`, hoje 4).
+
+Para uma VM de 1 OCPU e 4 GB existe o perfil `docker-compose.small.yml` (ative com `COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml` no `.env`): 1 processo na API, paralelismo 2, sem triggerer e limites menores. Medido com a DAG do BJJ rodando, a stack usa cerca de 1,3 GB.
