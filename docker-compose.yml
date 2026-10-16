@@ -2,6 +2,9 @@
 # Cada projeto em projects/<nome>/ ganha um banco, um pool e uma DAG por fonte.
 # Todas as variáveis vêm do arquivo .env (veja .env.example).
 
+# Nome fixo: containers e volumes se chamam airflow-crawler-* em qualquer pasta.
+name: airflow-crawler
+
 x-airflow-common: &airflow-common
   build: .
   image: crawlers-airflow:latest
