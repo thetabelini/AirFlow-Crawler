@@ -1,4 +1,4 @@
-# Crawlers
+# AirFlow-Crawler
 
 Plataforma para rodar crawlers com Airflow, numa única VM Always Free da Oracle Cloud (Ampere A1, 4 OCPU, 24 GB) com Docker Compose.
 
