@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from crawler.parsers.soucompetidor import parse
+from projects.bjj.parsers.soucompetidor import parse
 
-FIXTURE = Path(__file__).parent.parent / "fixtures" / "soucompetidor_inicio.html"
+FIXTURE = Path(__file__).parent / "fixtures" / "soucompetidor_inicio.html"
 
 
 @pytest.fixture(scope="module")

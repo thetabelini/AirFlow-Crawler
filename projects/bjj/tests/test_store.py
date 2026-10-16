@@ -1,4 +1,4 @@
-"""Precisa de um Postgres com o schema de sql/ aplicado.
+"""Precisa do banco bjj com as migrações aplicadas (serviço db-init).
 
 Rode com BJJ_TEST_DATABASE_URL=postgresql://bjj:<senha>@localhost:5432/bjj pytest
 """
@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from crawler import db
+from core import db
+from projects.bjj.store import upsert_events
 
 DATABASE_URL = os.environ.get("BJJ_TEST_DATABASE_URL")
 
@@ -17,7 +18,7 @@ pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="BJJ_TEST_DATABASE_URL 
 
 @pytest.fixture
 def conn():
-    with db.connect(DATABASE_URL) as conn:
+    with db.connect(url=DATABASE_URL) as conn:
         yield conn
         conn.rollback()
 
@@ -40,8 +41,8 @@ def _event(**overrides):
 
 
 def test_upsert_devolve_so_os_novos(conn):
-    assert len(db.upsert_events(conn, [_event(), _event(source_event_id="P2")])) == 2
-    assert db.upsert_events(conn, [_event(status="closed"), _event(source_event_id="P3")]) == [
+    assert len(upsert_events(conn, [_event(), _event(source_event_id="P2")])) == 2
+    assert upsert_events(conn, [_event(status="closed"), _event(source_event_id="P3")]) == [
         _event(source_event_id="P3")
     ]
     status = conn.execute(
@@ -50,9 +51,9 @@ def test_upsert_devolve_so_os_novos(conn):
     assert status == "closed"
 
 
-def test_record_run(conn):
+def test_record_run_no_schema_do_projeto(conn):
     db.record_run(
-        conn, "run-1", "teste", datetime.now(timezone.utc), events_found=3, new_events=1
+        conn, "bjj", "run-1", "teste", datetime.now(timezone.utc), items_found=3, new_items=1
     )
     row = conn.execute("SELECT * FROM bjj.crawl_runs WHERE run_id = 'run-1'").fetchone()
-    assert (row["events_found"], row["new_events"], row["pages_fetched"]) == (3, 1, 1)
+    assert (row["items_found"], row["new_items"], row["pages_fetched"]) == (3, 1, 1)

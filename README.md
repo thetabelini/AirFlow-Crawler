@@ -1,19 +1,32 @@
-# BJJ Crawler
+# Crawlers
 
-Coleta campeonatos de jiu-jitsu de sites de eventos e guarda tudo num Postgres.
-Cada site é uma DAG do Airflow que busca uma URL fixa de listagem, faz o parse e grava os eventos.
+Plataforma para rodar crawlers com Airflow, numa única VM Always Free da Oracle Cloud (Ampere A1, 4 OCPU, 24 GB) com Docker Compose.
 
-Roda inteiro numa VM Always Free da Oracle Cloud (Ampere A1, 4 OCPU, 24 GB), com Docker Compose.
+Cada assunto é um **projeto** em `projects/<nome>/`, com banco, pool e DAGs próprios. Hoje existe um:
+
+| Projeto | O que coleta | Fontes |
+| --- | --- | --- |
+| `bjj` | Campeonatos de jiu-jitsu | Sou Competidor |
+
+## Como os projetos ficam separados
+
+| Onde | Como |
+| --- | --- |
+| Código | `projects/<nome>/` tem os parsers, a normalização, a gravação e o schema do projeto. O que é comum fica em `core/`. |
+| Airflow | Uma DAG `<projeto>__<fonte>` por site, com a tag do projeto (filtre por ela na interface). |
+| Concorrência | Um pool por projeto (2 vagas), criado pelo `airflow-init`: um projeto travado não ocupa as vagas dos outros. |
+| Banco | Um banco e um usuário por projeto no mesmo Postgres. Um projeto não lê nem altera os dados de outro. |
 
 ## O que sobe
 
 | Serviço | Função |
 | --- | --- |
-| `postgres` | PostgreSQL 16 com dois bancos: `airflow` (metadados) e `bjj` (eventos) |
-| `airflow-init` | Migra o banco do Airflow e cria o usuário admin; roda uma vez e sai |
+| `postgres` | PostgreSQL 16: banco `airflow` (metadados) e um banco por projeto |
+| `db-init` | Cria o banco de cada projeto e aplica as migrações pendentes; roda a cada `up` e sai |
+| `airflow-init` | Migra o banco do Airflow, cria o admin e um pool por projeto; roda e sai |
 | `airflow-apiserver` | Interface web e API do Airflow (porta 8080, só em localhost) |
 | `airflow-scheduler` | Agenda as DAGs e executa as tasks (LocalExecutor) |
-| `airflow-dag-processor` | Lê os arquivos de `dags/` |
+| `airflow-dag-processor` | Lê `dags/` |
 | `airflow-triggerer` | Tasks deferrable |
 | `caddy` | HTTPS automático na frente da interface (portas 80 e 443) |
 
@@ -21,17 +34,18 @@ A imagem do Airflow é estendida no `Dockerfile` com `httpx`, `selectolax`, `psy
 
 ## Rodando
 
-Precisa de Docker com o plugin compose.
+Precisa de Docker com o plugin compose. Crie o `.env` (as senhas e chaves são geradas na hora):
 
 ```bash
-cp .env.example .env
-```
-
-Preencha o `.env`. As chaves podem ser geradas assim:
-
-```bash
-openssl rand -base64 32 | tr '+/' '-_'   # AIRFLOW_FERNET_KEY
-openssl rand -hex 32                     # AIRFLOW_JWT_SECRET
+cat > .env <<EOF
+DOMAIN=localhost
+AIRFLOW_ADMIN_USER=admin
+AIRFLOW_ADMIN_PASSWORD=$(openssl rand -hex 12)
+AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
+BJJ_DB_PASSWORD=$(openssl rand -hex 16)
+AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
+EOF
 ```
 
 Suba tudo:
@@ -45,50 +59,54 @@ O primeiro build demora alguns minutos (baixa o Chromium). Depois:
 - `https://localhost` (ou o seu `DOMAIN`): interface do Airflow, login com `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD`
 - `http://127.0.0.1:8080`: acesso direto, sem o Caddy
 
-Com `DOMAIN=localhost` o Caddy usa um certificado local, então o navegador vai avisar que não é confiável. Em produção, com um domínio apontando para a VM, ele emite um certificado válido sozinho.
+As DAGs nascem pausadas: ative na interface e use "Trigger" para rodar na hora.
 
-Para conferir o banco de eventos:
+Com `DOMAIN=localhost` o Caddy usa um certificado local, então o navegador avisa que não é confiável. Em produção, com um domínio apontando para a VM, ele emite um certificado válido sozinho.
+
+Para consultar os dados de um projeto:
 
 ```bash
-docker compose exec postgres psql -U bjj -d bjj -c '\dt bjj.*'
+docker compose exec postgres psql -U bjj -d bjj -c 'select count(*) from bjj.events'
 ```
 
-## Banco `bjj`
-
-Criado na primeira vez que o Postgres sobe, por `postgres/initdb/01-create-bjj.sh`, que aplica os arquivos de `sql/` em ordem.
-
-- `bjj.events`: um registro por campeonato por fonte, único em `(source, source_event_id)`. O `fingerprint` (nome + data + cidade normalizados) liga o mesmo evento vindo de fontes diferentes.
-- `bjj.crawl_runs`: uma linha por execução de DAG, com contagens e erros.
-
-Os scripts de `initdb` só rodam com o volume vazio. Para recriar o banco do zero em desenvolvimento: `docker compose down -v`.
-
-## Fontes e DAGs
-
-Cada bloco de `config/sources.yaml` vira uma DAG `crawl_<name>` (gerada por `dags/dag_factory.py`) com 4 tasks:
+## Pipeline de cada DAG
 
 1. `fetch_listing`: um request na URL fixa da fonte (httpx, ou Playwright se `js: true`)
-2. `parse`: o parser da fonte (`crawler/parsers/<parser>.py`) extrai todos os eventos da página; se não achar nenhum, a task falha (o layout do site provavelmente mudou)
-3. `normalize`: limpa os textos, converte país para código ISO, detecta gi/no-gi pelo nome e calcula o `fingerprint`
-4. `upsert_notify`: grava em `bjj.events`, registra a execução em `bjj.crawl_runs` e lista no log os eventos novos
+2. `parse`: o parser da fonte extrai todos os itens da página; se não achar nenhum, a task falha (o layout do site provavelmente mudou)
+3. `normalize`: `projects/<nome>/pipeline.py` limpa e completa cada item
+4. `upsert_notify`: `pipeline.store()` grava no banco do projeto, a execução vai para `<projeto>.crawl_runs` e os itens novos aparecem no log
 
-Fontes configuradas:
+## Adicionando um projeto
 
-| Fonte | URL | Parser |
-| --- | --- | --- |
-| Sou Competidor | https://soucompetidor.com.br/pt-br/ | `soucompetidor` |
+1. Crie `projects/<nome>/` (letras minúsculas, números e `_`) com:
+   - `sources.yaml`: um bloco por site (`name`, `url`, `parser`, `schedule`, `js`)
+   - `parsers/<parser>.py`: `parse(html) -> list[dict]`
+   - `pipeline.py`: `normalize(source, raw) -> dict` e `store(conn, items) -> list[dict]` (devolve os novos)
+   - `sql/001_init.sql`: as tabelas, no schema `<nome>`
+   - `tests/`: testes com um recorte real da página em `tests/fixtures/`
+2. Adicione `<NOME>_DB_PASSWORD` ao `.env`.
+3. `docker compose up -d`: o `db-init` cria o banco e o `airflow-init` cria o pool. As DAGs aparecem sozinhas.
 
-Para adicionar um site: um bloco no `sources.yaml` e um módulo em `crawler/parsers/` com uma função `parse(html) -> list[dict]`, mais um teste com um recorte real da página em `tests/fixtures/`.
+`projects/bjj/` serve de modelo.
+
+## Adicionando uma fonte a um projeto existente
+
+Um bloco no `sources.yaml` do projeto e um módulo em `parsers/`, mais um teste.
+
+## Migrações
+
+O `db-init` aplica, em ordem, `core/sql/*.sql` (tabelas comuns, como `crawl_runs`) e `projects/<nome>/sql/*.sql` em cada banco, e anota o que já rodou em `public.schema_migrations`. Para mudar um schema, crie um arquivo novo (`002_...sql`); não edite um que já foi aplicado.
 
 ## Testes
 
-O código de `crawler/` não depende do Airflow, então os testes rodam sem subir nada:
+O código de `core/` e `projects/` não depende do Airflow, então os testes rodam sem subir nada:
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pytest
 ```
 
-Os testes de banco (`tests/test_db.py`) só rodam com um Postgres com o schema aplicado:
+Os testes de banco só rodam com o banco do projeto disponível:
 
 ```bash
 BJJ_TEST_DATABASE_URL=postgresql://bjj:<senha>@localhost:5432/bjj .venv/bin/pytest
@@ -97,18 +115,20 @@ BJJ_TEST_DATABASE_URL=postgresql://bjj:<senha>@localhost:5432/bjj .venv/bin/pyte
 ## Estrutura
 
 ```
-docker-compose.yml
-Dockerfile
-requirements.txt
-requirements-dev.txt
-Caddyfile
-.env.example
-postgres/initdb/     criação do banco bjj
-sql/                 schema
-dags/                dag_factory.py: uma DAG por fonte
-crawler/             fetch, parsers, normalização e gravação (não depende do Airflow)
-config/              sources.yaml: um bloco por site
-tests/               testes e recortes reais das páginas
+docker-compose.yml, Dockerfile, Caddyfile, .env.example   plataforma
+requirements.txt, requirements-dev.txt, pytest.ini
+scripts/db-init.sh     cria os bancos dos projetos e aplica as migrações
+dags/dag_factory.py    uma DAG por fonte de cada projeto
+core/                  fetch, leitura dos projetos, banco, funções de texto
+core/sql/              migrações aplicadas em todo projeto (crawl_runs)
+tests/                 testes do core
+projects/
+└─ bjj/
+   ├─ sources.yaml
+   ├─ parsers/soucompetidor.py
+   ├─ normalize.py, store.py, pipeline.py
+   ├─ sql/001_init.sql
+   └─ tests/
 ```
 
 ## Memória (VM de 24 GB)

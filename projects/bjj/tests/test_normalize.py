@@ -1,11 +1,11 @@
 from datetime import date
 
-from crawler.normalize import (
+from core.text import parse_br_date
+from projects.bjj.normalize import (
     country_code,
     fingerprint,
     modalities,
     normalize_event,
-    parse_br_date,
 )
 
 

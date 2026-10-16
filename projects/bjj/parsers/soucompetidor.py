@@ -12,7 +12,7 @@ import re
 
 from selectolax.lexbor import LexborHTMLParser
 
-from crawler.normalize import clean, parse_br_date
+from core.text import clean, parse_br_date
 
 EVENT_LINK = re.compile(r"/eventos/todos-os-eventos/(p\d+)-[^/]*/?$")
 DATE_RANGE = re.compile(r"(\d{2}/\d{2}/\d{4})(?:\s*-\s*(\d{2}/\d{2}/\d{4}))?")

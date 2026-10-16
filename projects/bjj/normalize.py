@@ -1,9 +1,9 @@
-"""Limpeza comum a todas as fontes e campos derivados (país, modalidade, fingerprint)."""
+"""Limpeza comum a todas as fontes de BJJ e campos derivados (país, modalidade, fingerprint)."""
 
 import hashlib
 import re
-import unicodedata
-from datetime import date, datetime
+
+from core.text import clean, slug
 
 COUNTRY_CODES = {
     "BRASIL": "BR",
@@ -30,29 +30,6 @@ TEXT_FIELDS = (
     "event_url",
     "registration_url",
 )
-
-
-def clean(value: str | None) -> str | None:
-    if value is None:
-        return None
-    value = re.sub(r"\s+", " ", value).strip()
-    return value or None
-
-
-def parse_br_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value.strip(), "%d/%m/%Y").date()
-    except ValueError:
-        return None
-
-
-def slug(value: str | None) -> str:
-    if not value:
-        return ""
-    ascii_text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
 
 
 def country_code(value: str | None) -> str | None:
