@@ -6,6 +6,7 @@ CREATE TABLE bjj.events (
     source_event_id       text        NOT NULL,
     fingerprint           text        NOT NULL,
     name                  text        NOT NULL,
+    edition               text,
     start_date            date,
     end_date              date,
     city                  text,
@@ -14,6 +15,7 @@ CREATE TABLE bjj.events (
     venue                 text,
     organizer             text,
     modality              text[]      NOT NULL DEFAULT '{}',
+    event_url             text,
     registration_url      text,
     registration_deadline date,
     status                text        NOT NULL DEFAULT 'open'
@@ -26,17 +28,3 @@ CREATE TABLE bjj.events (
 -- Não é único: o mesmo campeonato pode vir de mais de uma fonte.
 CREATE INDEX events_fingerprint_idx ON bjj.events (fingerprint);
 CREATE INDEX events_start_date_idx ON bjj.events (start_date);
-
-CREATE TABLE bjj.crawl_runs (
-    id            bigserial PRIMARY KEY,
-    run_id        text        NOT NULL,
-    source        text        NOT NULL,
-    started_at    timestamptz NOT NULL DEFAULT now(),
-    finished_at   timestamptz,
-    pages_fetched integer     NOT NULL DEFAULT 0,
-    events_found  integer     NOT NULL DEFAULT 0,
-    new_events    integer     NOT NULL DEFAULT 0,
-    errors        text
-);
-
-CREATE INDEX crawl_runs_source_started_idx ON bjj.crawl_runs (source, started_at DESC);

@@ -1,10 +1,16 @@
-# BJJ Crawler: Airflow 3 (LocalExecutor) + PostgreSQL + Caddy em uma única VM.
+# Plataforma de crawlers: Airflow 3 (LocalExecutor) + PostgreSQL + Caddy em uma única VM.
+# Cada projeto em projects/<nome>/ ganha um banco, um pool e uma DAG por fonte.
 # Todas as variáveis vêm do arquivo .env (veja .env.example).
+
+# Nome fixo: containers e volumes se chamam airflow-crawler-* em qualquer pasta.
+name: airflow-crawler
 
 x-airflow-common: &airflow-common
   build: .
-  image: bjj-crawler-airflow:latest
+  image: crawlers-airflow:latest
   user: "50000:0"
+  # Repassa o .env inteiro: as senhas <PROJETO>_DB_PASSWORD de cada projeto vêm daqui.
+  env_file: .env
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__PARALLELISM: "4"
@@ -17,16 +23,17 @@ x-airflow-common: &airflow-common
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?defina AIRFLOW_JWT_SECRET no .env}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     PYTHONPATH: /opt/airflow
-    BJJ_DATABASE_URL: postgresql://bjj:${BJJ_DB_PASSWORD:?defina BJJ_DB_PASSWORD no .env}@postgres:5432/bjj
-    BJJ_SOURCES_FILE: /opt/airflow/bjj_config/sources.yaml
+    PROJECTS_DIR: /opt/airflow/projects
   volumes:
     - ./dags:/opt/airflow/dags:ro
-    - ./crawler:/opt/airflow/crawler:ro
-    - ./config:/opt/airflow/bjj_config:ro
+    - ./core:/opt/airflow/core:ro
+    - ./projects:/opt/airflow/projects:ro
     - airflow-logs:/opt/airflow/logs
   depends_on: &airflow-common-depends-on
     postgres:
       condition: service_healthy
+    db-init:
+      condition: service_completed_successfully
 
 services:
   postgres:
@@ -35,11 +42,8 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:?defina AIRFLOW_DB_PASSWORD no .env}
       POSTGRES_DB: airflow
-      BJJ_DB_PASSWORD: ${BJJ_DB_PASSWORD:?defina BJJ_DB_PASSWORD no .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
-      - ./sql:/sql:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
@@ -48,9 +52,37 @@ services:
     mem_limit: 2g
     restart: always
 
+  # Cria/atualiza o banco de cada projeto e aplica as migrações pendentes. Roda a cada "up".
+  db-init:
+    image: postgres:16
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGUSER: airflow
+      PGPASSWORD: ${AIRFLOW_DB_PASSWORD:?defina AIRFLOW_DB_PASSWORD no .env}
+    volumes:
+      - ./scripts/db-init.sh:/db-init.sh:ro
+      - ./core/sql:/core-sql:ro
+      - ./projects:/projects:ro
+    entrypoint: ["bash", "/db-init.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   airflow-init:
     <<: *airflow-common
-    command: version
+    # O entrypoint da imagem migra o banco do Airflow e cria o admin; depois, um pool por projeto.
+    command:
+      - bash
+      - -c
+      - |
+        airflow version
+        for dir in /opt/airflow/projects/*/; do
+          [ -f "$${dir}sources.yaml" ] || continue
+          project=$$(basename "$$dir")
+          airflow pools set "$$project" 2 "crawlers do projeto $$project"
+        done
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: "true"
