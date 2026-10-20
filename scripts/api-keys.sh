@@ -1,7 +1,7 @@
 #!/bin/bash
 # Chaves de API da tela e API de dados (https://dados.<DOMAIN>). Rode na pasta do projeto, com a stack no ar.
 #   bash scripts/api-keys.sh criar <nome>     cria a chave e mostra uma única vez
-#   bash scripts/api-keys.sh listar           chaves, situação, último uso e requisições
+#   bash scripts/api-keys.sh listar           chaves, situação, último uso e requisições (hoje e total)
 #   bash scripts/api-keys.sh revogar <nome>   corta o acesso na hora
 # Quem recebe usa o cabeçalho:  X-API-Key: <chave>
 set -euo pipefail
@@ -41,10 +41,14 @@ criar)
 	;;
 listar)
 	psql_web -c "
-		SELECT name AS nome, key_prefix || '…' AS chave, created_at::date AS criada,
-		       CASE WHEN revoked_at IS NULL THEN 'ativa' ELSE 'revogada ' || revoked_at::date END AS situacao,
-		       to_char(last_used_at, 'YYYY-MM-DD HH24:MI') AS ultimo_uso, requests AS requisicoes
-		FROM web.api_keys ORDER BY id"
+		SELECT k.name AS nome, k.key_prefix || '…' AS chave, k.created_at::date AS criada,
+		       CASE WHEN k.revoked_at IS NULL THEN 'ativa' ELSE 'revogada ' || k.revoked_at::date END AS situacao,
+		       to_char(k.last_used_at, 'YYYY-MM-DD HH24:MI') AS ultimo_uso,
+		       COALESCE(u.hits, 0) AS hoje, k.requests AS total
+		FROM web.api_keys k
+		LEFT JOIN web.api_key_usage u
+		       ON u.key_id = k.id AND u.window_kind = 'day' AND u.window_start = date_trunc('day', now())
+		ORDER BY k.id"
 	;;
 revogar)
 	name=${2:-}

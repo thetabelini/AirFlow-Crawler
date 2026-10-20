@@ -51,11 +51,12 @@ psql -v ON_ERROR_STOP=1 -d web -c "SET ROLE web" -c "
 	)"
 apply_migrations web web "$WEB_SQL"
 if [ -n "${WEB_DB_PASSWORD:-}" ]; then
-	# Lê as chaves e atualiza só os contadores de uso.
+	# Lê as chaves, atualiza só os contadores de uso e mantém a contagem do limite.
 	psql -v ON_ERROR_STOP=1 -d web <<-'EOSQL'
 		GRANT CONNECT ON DATABASE web TO web_reader;
 		GRANT USAGE ON SCHEMA web TO web_reader;
 		GRANT SELECT, UPDATE (last_used_at, requests) ON web.api_keys TO web_reader;
+		GRANT SELECT, INSERT, UPDATE, DELETE ON web.api_key_usage TO web_reader;
 	EOSQL
 fi
 

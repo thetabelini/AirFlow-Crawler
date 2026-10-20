@@ -169,6 +169,8 @@ services:
       WEB_DB_PASSWORD: ${WEB_DB_PASSWORD:?defina WEB_DB_PASSWORD no .env}
       WEB_USERS: ${WEB_USERS:-}
       WEB_PUBLIC: ${WEB_PUBLIC:-false}
+      WEB_RATE_LIMIT_PER_MINUTE: ${WEB_RATE_LIMIT_PER_MINUTE:-60}
+      WEB_RATE_LIMIT_PER_DAY: ${WEB_RATE_LIMIT_PER_DAY:-5000}
       PROJECTS_DIR: /app/projects
     volumes:
       - ./web:/app/web:ro

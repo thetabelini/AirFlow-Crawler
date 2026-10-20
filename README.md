@@ -90,7 +90,7 @@ Há duas formas de acesso:
 
 ```bash
 bash scripts/api-keys.sh criar joao      # mostra a chave uma única vez: envie para a pessoa
-bash scripts/api-keys.sh listar          # situação, último uso e número de requisições
+bash scripts/api-keys.sh listar          # situação, último uso e requisições hoje e no total
 bash scripts/api-keys.sh revogar joao    # corta o acesso na hora
 ```
 
@@ -101,6 +101,8 @@ curl -H "X-API-Key: afc_..." "https://dados.<DOMAIN>/bjj/api/eventos?uf=SP&statu
 ```
 
 O banco guarda só o hash (SHA-256) da chave, no banco `web` da plataforma.
+
+Cada chave tem limite de **60 requisições por minuto** e **5.000 por dia** (ajustáveis no `.env` com `WEB_RATE_LIMIT_PER_MINUTE` e `WEB_RATE_LIMIT_PER_DAY`, seguido de `docker compose up -d web`). As respostas trazem o que resta em `X-RateLimit-Remaining-Minute` e `X-RateLimit-Remaining-Day`; passando do limite, a resposta é **429** com `Retry-After` (segundos até a próxima janela). Usuário e senha (`WEB_USERS`) não têm limite.
 
 **Usuário e senha** (HTTP Basic), para você usar a tela no navegador, definidos no `.env`:
 
