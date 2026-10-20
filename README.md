@@ -84,19 +84,33 @@ O serviço `web` mostra os dados coletados em `https://dados.<DOMAIN>` (no Airfl
 - `/bjj/api/eventos` e `/bjj/api/estatisticas`: os mesmos dados em JSON, com os filtros como parâmetros
 - `/docs`: documentação da API
 
-Acesso por usuário e senha (HTTP Basic, vale para a tela e a API), definidos no `.env`:
+Há duas formas de acesso:
 
-```
-WEB_USERS=felipe:senha1,amigo:senha2
-```
-
-Para liberar alguém, acrescente um par `usuario:senha` e rode `docker compose up -d web`. Com `WEB_PUBLIC=true`, a tela e a API ficam abertas para qualquer pessoa. Exemplo de uso da API:
+**Chave de API**, para quem vai consumir os dados. Cada pessoa recebe a sua, e você revoga quando quiser. Na VM, na pasta do projeto:
 
 ```bash
-curl -u amigo:senha2 "https://dados.<DOMAIN>/bjj/api/eventos?uf=SP&status=open"
+bash scripts/api-keys.sh criar joao      # mostra a chave uma única vez: envie para a pessoa
+bash scripts/api-keys.sh listar          # situação, último uso e número de requisições
+bash scripts/api-keys.sh revogar joao    # corta o acesso na hora
 ```
 
-O serviço lê o banco com o usuário `web_reader`, criado pelo `db-init` com permissão só de leitura (`SELECT`) nos schemas dos projetos.
+A pessoa usa o cabeçalho `X-API-Key` (em `/docs`, botão **Authorize**):
+
+```bash
+curl -H "X-API-Key: afc_..." "https://dados.<DOMAIN>/bjj/api/eventos?uf=SP&status=open"
+```
+
+O banco guarda só o hash (SHA-256) da chave, no banco `web` da plataforma.
+
+**Usuário e senha** (HTTP Basic), para você usar a tela no navegador, definidos no `.env`:
+
+```
+WEB_USERS=felipe:senha1
+```
+
+Depois de mudar, rode `docker compose up -d web`. Com `WEB_PUBLIC=true`, a tela e a API ficam abertas para qualquer pessoa.
+
+O serviço lê o banco com o usuário `web_reader`, criado pelo `db-init`: só leitura (`SELECT`) nos schemas dos projetos e, no banco `web`, leitura das chaves e atualização dos contadores de uso.
 
 Um projeto ganha tela própria com um `projects/<nome>/web.py` que expõe um `router` do FastAPI; ele aparece em `/<nome>/`.
 
@@ -152,10 +166,11 @@ requirements.txt, requirements-dev.txt, pytest.ini
 scripts/db-init.sh     cria os bancos dos projetos e aplica as migrações
 scripts/setup-vm.sh    prepara a VM da Oracle (firewall, swap, Docker)
 scripts/backup.sh      backup diário dos bancos (local e, opcional, Object Storage)
+scripts/api-keys.sh    cria, lista e revoga chaves de API
 docs/                  deploy na Oracle
 dags/dag_factory.py    uma DAG por fonte de cada projeto
 plugins/links.py       links para a tela e a API no menu Plugins do Airflow
-web/                   tela e API de leitura (FastAPI), container próprio
+web/                   tela e API de leitura (FastAPI), container próprio; web/sql/ é o banco das chaves
 core/                  fetch, leitura dos projetos, banco, funções de texto
 core/sql/              migrações aplicadas em todo projeto (crawl_runs)
 tests/                 testes do core

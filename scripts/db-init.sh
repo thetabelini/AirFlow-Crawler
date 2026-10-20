@@ -3,11 +3,13 @@
 #   1. cria (ou atualiza a senha de) o usuário <nome> e o banco <nome>
 #   2. aplica as migrações que ainda não rodaram: primeiro core/sql/, depois projects/<nome>/sql/
 #   3. com WEB_DB_PASSWORD definida, dá ao usuário web_reader leitura no schema <nome>
+# Também mantém o banco "web" da própria plataforma (chaves de API, migrações em web/sql/).
 # As migrações aplicadas ficam em public.schema_migrations de cada banco.
 set -euo pipefail
 
 CORE_SQL=/core-sql
 PROJECTS=/projects
+WEB_SQL=/web-sql
 
 apply_migrations() {
 	local project=$1 prefix=$2 dir=$3
@@ -34,10 +36,33 @@ if [ -n "${WEB_DB_PASSWORD:-}" ]; then
 	EOSQL
 fi
 
+# Banco da plataforma: dono "web" (sem login), schema "web".
+echo "plataforma (banco web)"
+psql -v ON_ERROR_STOP=1 -d postgres <<-'EOSQL'
+	SELECT 'CREATE ROLE web NOLOGIN'
+	WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'web') \gexec
+	SELECT 'CREATE DATABASE web OWNER web'
+	WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'web') \gexec
+EOSQL
+psql -v ON_ERROR_STOP=1 -d web -c "SET ROLE web" -c "
+	CREATE TABLE IF NOT EXISTS public.schema_migrations (
+		filename   text PRIMARY KEY,
+		applied_at timestamptz NOT NULL DEFAULT now()
+	)"
+apply_migrations web web "$WEB_SQL"
+if [ -n "${WEB_DB_PASSWORD:-}" ]; then
+	# Lê as chaves e atualiza só os contadores de uso.
+	psql -v ON_ERROR_STOP=1 -d web <<-'EOSQL'
+		GRANT CONNECT ON DATABASE web TO web_reader;
+		GRANT USAGE ON SCHEMA web TO web_reader;
+		GRANT SELECT, UPDATE (last_used_at, requests) ON web.api_keys TO web_reader;
+	EOSQL
+fi
+
 for dir in "$PROJECTS"/*/; do
 	project=$(basename "$dir")
 	[ -d "$dir/sql" ] || continue
-	if [[ ! "$project" =~ ^[a-z][a-z0-9_]*$ ]]; then
+	if [[ ! "$project" =~ ^[a-z][a-z0-9_]*$ ]] || [ "$project" = "web" ]; then
 		echo "nome de projeto inválido: $project" >&2
 		exit 1
 	fi

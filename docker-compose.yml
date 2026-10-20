@@ -64,6 +64,7 @@ services:
     volumes:
       - ./scripts/db-init.sh:/db-init.sh:ro
       - ./core/sql:/core-sql:ro
+      - ./web/sql:/web-sql:ro
       - ./projects:/projects:ro
     entrypoint: ["bash", "/db-init.sh"]
     depends_on:
