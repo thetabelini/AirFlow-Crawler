@@ -173,4 +173,6 @@ git pull
 docker compose up -d --build
 ```
 
-O `db-init` aplica as migrações novas e o `airflow-init` cria os pools de projetos novos. Se um projeto novo foi adicionado, coloque a `<NOME>_DB_PASSWORD` dele no `.env` antes.
+O `db-init` aplica as migrações novas e o `airflow-init` cria os pools de projetos novos. O Caddy recarrega o `caddy/Caddyfile` sozinho quando ele muda.
+
+> Vindo de uma versão anterior, em que o `Caddyfile` ficava na raiz do repositório? Depois do `git pull`, recrie o Caddy uma vez: `docker compose up -d --force-recreate caddy`. Se um projeto novo foi adicionado, coloque a `<NOME>_DB_PASSWORD` dele no `.env` antes.

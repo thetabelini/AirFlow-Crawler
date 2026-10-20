@@ -146,7 +146,8 @@ BJJ_TEST_DATABASE_URL=postgresql://bjj:<senha>@localhost:5432/bjj .venv/bin/pyte
 ## Estrutura
 
 ```
-docker-compose.yml, Dockerfile, Caddyfile, .env.example   plataforma
+docker-compose.yml, Dockerfile, .env.example   plataforma
+caddy/Caddyfile        HTTPS e roteamento (recarrega sozinho quando muda)
 requirements.txt, requirements-dev.txt, pytest.ini
 scripts/db-init.sh     cria os bancos dos projetos e aplica as migrações
 scripts/setup-vm.sh    prepara a VM da Oracle (firewall, swap, Docker)
