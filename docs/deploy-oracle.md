@@ -92,6 +92,8 @@ AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
 BJJ_DB_PASSWORD=$(openssl rand -hex 16)
 AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
+WEB_DB_PASSWORD=$(openssl rand -hex 16)
+WEB_USERS=felipe:$(openssl rand -hex 8)
 EOF
 chmod 600 .env
 cat .env      # anote DOMAIN e AIRFLOW_ADMIN_PASSWORD
@@ -114,6 +116,7 @@ O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe
 ## 5. Acessar
 
 Abra `https://<DOMAIN>` e entre com `admin` e a `AIRFLOW_ADMIN_PASSWORD`.
+A tela de dados fica em `https://dados.<DOMAIN>` (link **Dados** no menu do Airflow), com o usuário e a senha de `WEB_USERS`.
 Ative a DAG `bjj__soucompetidor` e clique em **Trigger** para a primeira coleta. Depois disso ela roda sozinha uma vez por dia.
 
 Conferir os dados:

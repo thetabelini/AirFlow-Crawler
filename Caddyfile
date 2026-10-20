@@ -2,3 +2,8 @@
 	encode gzip
 	reverse_proxy airflow-apiserver:8080
 }
+
+dados.{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:8000
+}

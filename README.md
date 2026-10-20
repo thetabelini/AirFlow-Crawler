@@ -28,7 +28,8 @@ Cada assunto é um **projeto** em `projects/<nome>/`, com banco, pool e DAGs pr�
 | `airflow-scheduler` | Agenda as DAGs e executa as tasks (LocalExecutor) |
 | `airflow-dag-processor` | Lê `dags/` |
 | `airflow-triggerer` | Tasks deferrable |
-| `caddy` | HTTPS automático na frente da interface (portas 80 e 443) |
+| `web` | Tela e API de leitura dos dados (`https://dados.<DOMAIN>`), com usuário só de leitura no banco |
+| `caddy` | HTTPS automático na frente da interface e da tela de dados (portas 80 e 443) |
 
 A imagem do Airflow é estendida no `Dockerfile` com `httpx`, `selectolax`, `psycopg` e Playwright + Chromium.
 
@@ -49,6 +50,8 @@ AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
 BJJ_DB_PASSWORD=$(openssl rand -hex 16)
 AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
+WEB_DB_PASSWORD=$(openssl rand -hex 16)
+WEB_USERS=felipe:$(openssl rand -hex 8)
 EOF
 ```
 
@@ -72,6 +75,30 @@ Para consultar os dados de um projeto:
 ```bash
 docker compose exec postgres psql -U bjj -d bjj -c 'select count(*) from bjj.events'
 ```
+
+## Tela e API de dados
+
+O serviço `web` mostra os dados coletados em `https://dados.<DOMAIN>` (há um link **Dados** no menu do Airflow):
+
+- `/bjj/`: tabela de campeonatos com filtros por nome, estado, inscrição e período, mais totais por estado
+- `/bjj/api/eventos` e `/bjj/api/estatisticas`: os mesmos dados em JSON, com os filtros como parâmetros
+- `/docs`: documentação da API
+
+Acesso por usuário e senha (HTTP Basic, vale para a tela e a API), definidos no `.env`:
+
+```
+WEB_USERS=felipe:senha1,amigo:senha2
+```
+
+Para liberar alguém, acrescente um par `usuario:senha` e rode `docker compose up -d web`. Com `WEB_PUBLIC=true`, a tela e a API ficam abertas para qualquer pessoa. Exemplo de uso da API:
+
+```bash
+curl -u amigo:senha2 "https://dados.<DOMAIN>/bjj/api/eventos?uf=SP&status=open"
+```
+
+O serviço lê o banco com o usuário `web_reader`, criado pelo `db-init` com permissão só de leitura (`SELECT`) nos schemas dos projetos.
+
+Um projeto ganha tela própria com um `projects/<nome>/web.py` que expõe um `router` do FastAPI; ele aparece em `/<nome>/`.
 
 ## Pipeline de cada DAG
 
@@ -126,6 +153,8 @@ scripts/setup-vm.sh    prepara a VM da Oracle (firewall, swap, Docker)
 scripts/backup.sh      backup diário dos bancos (local e, opcional, Object Storage)
 docs/                  deploy na Oracle
 dags/dag_factory.py    uma DAG por fonte de cada projeto
+plugins/links.py       link "Dados" no menu do Airflow
+web/                   tela e API de leitura (FastAPI), container próprio
 core/                  fetch, leitura dos projetos, banco, funções de texto
 core/sql/              migrações aplicadas em todo projeto (crawl_runs)
 tests/                 testes do core
@@ -134,6 +163,7 @@ projects/
    ├─ sources.yaml
    ├─ parsers/soucompetidor.py
    ├─ normalize.py, store.py, pipeline.py
+   ├─ web.py, templates/   tela e API do projeto
    ├─ sql/001_init.sql
    └─ tests/
 ```

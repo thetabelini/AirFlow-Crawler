@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Campeonatos de jiu-jitsu</title>
+  <style>
+    :root { --ground: #f6f6f4; --ink: #16191d; --muted: #555c66; --line: #d8dbe0; --card: #fff; --accent: #1f4fa3; --open: #1a7f37; --closed: #8a8f98; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ground: #15181c; --ink: #e8eaed; --muted: #a3aab4; --line: #2e333a; --card: #1d2126; --accent: #8fb3ff; --open: #4cc26a; --closed: #8a8f98; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 4px; font-size: 26px; }
+    .sub { margin: 0 0 20px; color: var(--muted); }
+    a { color: var(--accent); }
+    form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+    label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+    input, select, button { font: inherit; color: var(--ink); background: var(--ground); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 40px; }
+    label.check { flex-direction: row; align-items: center; min-height: 40px; }
+    button { background: var(--accent); border-color: var(--accent); color: #fff; cursor: pointer; padding: 8px 18px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+    .stat { padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+    .stat b { display: block; font-size: 24px; }
+    .stat span { font-size: 13px; color: var(--muted); }
+    .uf { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; font-size: 13px; }
+    .uf a { padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; background: var(--card); }
+    .table { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+    .ed { display: block; font-size: 13px; color: var(--muted); }
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; white-space: nowrap; }
+    .open { background: var(--open); } .closed { background: var(--closed); }
+    .nowrap { white-space: nowrap; }
+    footer { margin-top: 20px; font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Campeonatos de jiu-jitsu</h1>
+  <p class="sub">
+    {% for c in stats.ultima_coleta %}Última coleta de {{ c.source }}: {{ c.ultima_coleta.strftime('%d/%m/%Y %H:%M') if c.ultima_coleta else '—' }} (UTC){% if not loop.last %} · {% endif %}{% else %}Ainda sem coletas.{% endfor %}
+  </p>
+
+  <form method="get">
+    <label>Nome
+      <input type="search" name="q" value="{{ f.q }}" placeholder="ex.: copa">
+    </label>
+    <label>Estado
+      <select name="uf">
+        <option value="">Todos</option>
+        {% for uf in ufs %}<option value="{{ uf }}" {% if uf == f.uf %}selected{% endif %}>{{ uf }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Inscrição
+      <select name="status">
+        <option value="">Todas</option>
+        <option value="open" {% if f.status == 'open' %}selected{% endif %}>Aberta</option>
+        <option value="closed" {% if f.status == 'closed' %}selected{% endif %}>Fechada</option>
+      </select>
+    </label>
+    <label>De
+      <input type="date" name="desde" value="{{ f.desde }}">
+    </label>
+    <label>Até
+      <input type="date" name="ate" value="{{ f.ate }}">
+    </label>
+    <label class="check"><input type="checkbox" name="passados" value="1" {% if f.passados %}checked{% endif %}>&nbsp;Incluir passados</label>
+    <button type="submit">Filtrar</button>
+    <a href="./">Limpar</a>
+  </form>
+
+  <section class="stats">
+    <div class="stat"><b>{{ stats.total }}</b><span>eventos</span></div>
+    <div class="stat"><b>{{ stats.abertos }}</b><span>com inscrição aberta</span></div>
+    <div class="stat"><b>{{ stats.estados }}</b><span>estados</span></div>
+  </section>
+
+  {% if stats.por_uf %}
+  <div class="uf">
+    {% for r in stats.por_uf %}<a href="?uf={{ r.uf or '' }}">{{ r.uf or 'sem UF' }} · {{ r.eventos }}</a>{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="table">
+    <table>
+      <thead>
+        <tr><th>Data</th><th>Campeonato</th><th>Local</th><th>Inscrição</th><th>Links</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="nowrap">
+            {% if e.start_date %}{{ e.start_date.strftime('%d/%m/%Y') }}{% if e.end_date and e.end_date != e.start_date %}<br>a {{ e.end_date.strftime('%d/%m/%Y') }}{% endif %}{% else %}—{% endif %}
+          </td>
+          <td>{{ e.name }}{% if e.edition %}<span class="ed">{{ e.edition }}</span>{% endif %}</td>
+          <td>{{ e.city or 'a definir' }}{% if e.state %} - {{ e.state }}{% endif %}</td>
+          <td>{% if e.status == 'open' %}<span class="badge open">aberta</span>{% else %}<span class="badge closed">fechada</span>{% endif %}</td>
+          <td class="nowrap">
+            {% if e.event_url %}<a href="{{ e.event_url }}" target="_blank" rel="noopener">evento</a>{% endif %}
+            {% if e.registration_url %} · <a href="{{ e.registration_url }}" target="_blank" rel="noopener">inscrever</a>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Nenhum evento com esses filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    Mostrando {{ events|length }} de {{ total }}. Dados também pela API: <a href="api/eventos">api/eventos</a> e <a href="api/estatisticas">api/estatisticas</a> · <a href="/docs">documentação</a>
+  </footer>
+</main>
+</body>
+</html>
