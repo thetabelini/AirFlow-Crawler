@@ -189,6 +189,9 @@ services:
 
   caddy:
     image: caddy:2
+    # Monta a pasta (não o arquivo) e usa --watch: depois de um git pull que mude o
+    # Caddyfile, o Caddy recarrega sozinho, sem precisar recriar o container.
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--watch"]
     environment:
       DOMAIN: ${DOMAIN:-localhost}
     ports:
@@ -196,7 +199,7 @@ services:
       - "443:443"
       - "443:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy:ro
       - caddy-data:/data
       - caddy-config:/config
     mem_limit: 256m

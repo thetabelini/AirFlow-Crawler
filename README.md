@@ -78,7 +78,7 @@ docker compose exec postgres psql -U bjj -d bjj -c 'select count(*) from bjj.eve
 
 ## Tela e API de dados
 
-O serviço `web` mostra os dados coletados em `https://dados.<DOMAIN>` (há um link **Dados** no menu do Airflow):
+O serviço `web` mostra os dados coletados em `https://dados.<DOMAIN>` (no Airflow: menu **Plugins → Dados coletados** e **API de dados**):
 
 - `/bjj/`: tabela de campeonatos com filtros por nome, estado, inscrição e período, mais totais por estado
 - `/bjj/api/eventos` e `/bjj/api/estatisticas`: os mesmos dados em JSON, com os filtros como parâmetros
@@ -146,14 +146,15 @@ BJJ_TEST_DATABASE_URL=postgresql://bjj:<senha>@localhost:5432/bjj .venv/bin/pyte
 ## Estrutura
 
 ```
-docker-compose.yml, Dockerfile, Caddyfile, .env.example   plataforma
+docker-compose.yml, Dockerfile, .env.example   plataforma
+caddy/Caddyfile        HTTPS e roteamento (recarrega sozinho quando muda)
 requirements.txt, requirements-dev.txt, pytest.ini
 scripts/db-init.sh     cria os bancos dos projetos e aplica as migrações
 scripts/setup-vm.sh    prepara a VM da Oracle (firewall, swap, Docker)
 scripts/backup.sh      backup diário dos bancos (local e, opcional, Object Storage)
 docs/                  deploy na Oracle
 dags/dag_factory.py    uma DAG por fonte de cada projeto
-plugins/links.py       link "Dados" no menu do Airflow
+plugins/links.py       links para a tela e a API no menu Plugins do Airflow
 web/                   tela e API de leitura (FastAPI), container próprio
 core/                  fetch, leitura dos projetos, banco, funções de texto
 core/sql/              migrações aplicadas em todo projeto (crawl_runs)

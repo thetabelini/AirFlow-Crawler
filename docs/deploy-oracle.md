@@ -114,7 +114,7 @@ O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe
 ## 5. Acessar
 
 Abra `https://<DOMAIN>` e entre com `admin` e a `AIRFLOW_ADMIN_PASSWORD`.
-A tela de dados fica em `https://dados.<DOMAIN>` (link **Dados** no menu do Airflow), com o usuário e a senha de `WEB_USERS`.
+A tela de dados fica em `https://dados.<DOMAIN>` (no Airflow: menu **Plugins → Dados coletados**), com o usuário e a senha de `WEB_USERS`.
 Ative a DAG `bjj__soucompetidor` e clique em **Trigger** para a primeira coleta. Depois disso ela roda sozinha uma vez por dia.
 
 Conferir os dados:
@@ -173,4 +173,6 @@ git pull
 docker compose up -d --build
 ```
 
-O `db-init` aplica as migrações novas e o `airflow-init` cria os pools de projetos novos. Se um projeto novo foi adicionado, coloque a `<NOME>_DB_PASSWORD` dele no `.env` antes.
+O `db-init` aplica as migrações novas e o `airflow-init` cria os pools de projetos novos. O Caddy recarrega o `caddy/Caddyfile` sozinho quando ele muda.
+
+> Vindo de uma versão anterior, em que o `Caddyfile` ficava na raiz do repositório? Depois do `git pull`, recrie o Caddy uma vez: `docker compose up -d --force-recreate caddy`. Se um projeto novo foi adicionado, coloque a `<NOME>_DB_PASSWORD` dele no `.env` antes.
