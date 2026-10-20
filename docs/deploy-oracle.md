@@ -67,13 +67,11 @@ A porta 22 já vem aberta. Opcional: trocar a origem da regra do SSH para o seu 
 ```bash
 ssh ubuntu@<IP>
 
-git clone -b claude/serene-lovelace-s4ony2 https://github.com/thetabelini/AirFlow-Crawler.git
+git clone https://github.com/thetabelini/AirFlow-Crawler.git
 cd AirFlow-Crawler
 bash scripts/setup-vm.sh
 exit
 ```
-
-> Quando o branch for mesclado no `main`, clone sem o `-b claude/serene-lovelace-s4ony2`.
 
 O `setup-vm.sh` libera 80/443 no firewall do próprio Ubuntu (a imagem da Oracle bloqueia tudo além do SSH, mesmo com a security list aberta), cria 4 GB de swap e instala o Docker. Saia e entre de novo para o grupo `docker` valer.
 
