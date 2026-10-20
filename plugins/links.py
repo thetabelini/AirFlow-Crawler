@@ -1,4 +1,4 @@
-"""Link no menu do Airflow para a tela de dados (serviço web)."""
+"""Links no menu do Airflow para a tela e a API de dados (serviço web)."""
 
 import os
 
@@ -9,10 +9,10 @@ DOMAIN = os.environ.get("DOMAIN", "localhost")
 
 class LinksPlugin(AirflowPlugin):
     name = "links"
+    # São dois links de propósito: com um item só, o Airflow 3.3 o desenha como um
+    # botão solto no menu lateral que não abre nada. Com dois, eles aparecem dentro
+    # do menu "Plugins" como links normais, que abrem em nova aba.
     external_views = [
-        {
-            "name": "Dados",
-            "href": f"https://dados.{DOMAIN}/",
-            "destination": "nav",
-        }
+        {"name": "Dados coletados", "href": f"https://dados.{DOMAIN}/", "destination": "nav"},
+        {"name": "API de dados", "href": f"https://dados.{DOMAIN}/docs", "destination": "nav"},
     ]
