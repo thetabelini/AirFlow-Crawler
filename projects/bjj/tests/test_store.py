@@ -57,3 +57,53 @@ def test_record_run_no_schema_do_projeto(conn):
     )
     row = conn.execute("SELECT * FROM bjj.crawl_runs WHERE run_id = 'run-1'").fetchone()
     assert (row["items_found"], row["new_items"], row["pages_fetched"]) == (3, 1, 1)
+
+
+def test_historico_de_mudancas():
+    """Três coletas em transações separadas, como na DAG."""
+    from projects.bjj.pipeline import store
+
+    source = "teste_historico"
+    a = _event(source=source, source_event_id="H1", name="COPA A", status="open")
+    b = _event(source=source, source_event_id="H2", name="COPA B")
+
+    def coleta(run_id, eventos):
+        with db.connect(url=DATABASE_URL) as conn:
+            db.set_run_id(conn, run_id)
+            return store(conn, eventos)
+
+    try:
+        assert len(coleta("run-1", [a, b])) == 2
+        coleta("run-2", [{**a, "status": "closed", "start_date": "2026-11-15"}])  # B sumiu
+        coleta("run-3", [{**a, "status": "closed", "start_date": "2026-11-15"}, b])  # B voltou
+
+        with db.connect(url=DATABASE_URL) as conn:
+            rows = conn.execute(
+                "SELECT e.source_event_id AS sid, c.run_id, c.change_type, c.field,"
+                " c.old_value, c.new_value FROM bjj.event_changes c"
+                " JOIN bjj.events e ON e.id = c.event_id WHERE e.source = %s"
+                " ORDER BY c.id",
+                (source,),
+            ).fetchall()
+            removed = conn.execute(
+                "SELECT removed_at FROM bjj.events WHERE source = %s AND source_event_id = 'H2'",
+                (source,),
+            ).fetchone()["removed_at"]
+
+        resumo = [(r["sid"], r["run_id"], r["change_type"], r["field"]) for r in rows]
+        assert ("H1", "run-1", "created", None) in resumo
+        assert ("H2", "run-1", "created", None) in resumo
+        assert ("H1", "run-2", "updated", "status") in resumo
+        assert ("H1", "run-2", "updated", "start_date") in resumo
+        assert ("H2", "run-2", "updated", "removed_at") in resumo
+        assert ("H2", "run-3", "updated", "removed_at") in resumo
+        status = next(r for r in rows if r["field"] == "status")
+        assert (status["old_value"], status["new_value"]) == ("open", "closed")
+        sumiu, voltou = [r for r in rows if r["field"] == "removed_at"]
+        assert sumiu["old_value"] is None and sumiu["new_value"] is not None
+        assert voltou["new_value"] is None and removed is None
+        # A 3ª coleta não mudou nada em H1, então não gera linha para ele.
+        assert not [r for r in rows if r["sid"] == "H1" and r["run_id"] == "run-3"]
+    finally:
+        with db.connect(url=DATABASE_URL) as conn:
+            conn.execute("DELETE FROM bjj.events WHERE source = %s", (source,))

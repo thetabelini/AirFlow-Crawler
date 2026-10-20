@@ -1,4 +1,7 @@
-"""Gravação dos eventos em bjj.events."""
+"""Gravação dos eventos em bjj.events.
+
+Cada mudança fica em bjj.event_changes, preenchida por um trigger (sql/002_event_changes.sql).
+"""
 
 import psycopg
 
@@ -29,8 +32,17 @@ ON CONFLICT (source, source_event_id) DO UPDATE SET
     registration_url      = EXCLUDED.registration_url,
     registration_deadline = EXCLUDED.registration_deadline,
     status                = EXCLUDED.status,
+    removed_at            = NULL,
     last_seen_at          = now()
 RETURNING (xmax = 0) AS inserted
+"""
+
+# Eventos da fonte que não vieram nesta coleta: o upsert acabou de pôr last_seen_at = now()
+# (início da transação) em todos os que vieram, então os que ficaram para trás sumiram do site.
+MARK_REMOVED = """
+UPDATE bjj.events SET removed_at = now()
+WHERE source = %(source)s AND removed_at IS NULL AND last_seen_at < now()
+RETURNING source_event_id, name
 """
 
 EVENT_DEFAULTS = {
@@ -59,3 +71,10 @@ def upsert_events(conn: psycopg.Connection, events: list[dict]) -> list[dict]:
             if cur.fetchone()["inserted"]:
                 new_events.append(event)
     return new_events
+
+
+def mark_removed(conn: psycopg.Connection, source: str) -> list[dict]:
+    """Marca como removidos os eventos da fonte que não vieram nesta coleta e os devolve."""
+    with conn.cursor() as cur:
+        cur.execute(MARK_REMOVED, {"source": source})
+        return cur.fetchall()

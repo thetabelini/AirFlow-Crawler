@@ -80,8 +80,11 @@ docker compose exec postgres psql -U bjj -d bjj -c 'select count(*) from bjj.eve
 
 O serviço `web` mostra os dados coletados em `https://dados.<DOMAIN>` (no Airflow: menu **Plugins → Dados coletados** e **API de dados**):
 
-- `/bjj/`: tabela de campeonatos com filtros por nome, estado, inscrição e período, mais totais por estado
-- `/bjj/api/eventos` e `/bjj/api/estatisticas`: os mesmos dados em JSON, com os filtros como parâmetros
+- `/bjj/`: tabela de campeonatos com filtros por nome, estado, inscrição e período, mais totais por estado; o nome de cada evento abre a página de detalhe
+- `/bjj/eventos/<id>`: todos os campos do evento e o histórico de mudanças
+- `/bjj/api/eventos` e `/bjj/api/estatisticas`: os mesmos dados em JSON, com os filtros como parâmetros (`removidos=true` inclui os que sumiram do site)
+- `/bjj/api/eventos/<id>`: um evento com todos os campos e o histórico
+- `/bjj/api/mudancas?desde=<data-hora>&campo=<campo>`: todas as mudanças em ordem, para sincronizar só o que mudou
 - `/docs`: documentação da API
 
 Há duas formas de acesso:
@@ -115,6 +118,23 @@ Depois de mudar, rode `docker compose up -d web`. Com `WEB_PUBLIC=true`, a tela 
 O serviço lê o banco com o usuário `web_reader`, criado pelo `db-init`: só leitura (`SELECT`) nos schemas dos projetos e, no banco `web`, leitura das chaves e atualização dos contadores de uso.
 
 Um projeto ganha tela própria com um `projects/<nome>/web.py` que expõe um `router` do FastAPI; ele aparece em `/<nome>/`.
+
+## Histórico de mudanças (BJJ)
+
+Cada gravação em `bjj.events` passa por um trigger que registra em `bjj.event_changes`:
+
+- `created`: o evento apareceu pela primeira vez
+- `updated`: um campo mudou, com o valor antigo (`old_value`) e o novo (`new_value`)
+
+Cada linha traz quando (`changed_at`) e qual execução da DAG fez a mudança (`run_id`). Quando um evento some do site, a coleta preenche `removed_at` (e isso entra no histórico); se ele voltar, `removed_at` é limpo. Por padrão, a tela e a API escondem os removidos.
+
+Exemplo: quando as inscrições de cada evento fecharam.
+
+```sql
+SELECT e.name, c.changed_at
+FROM bjj.event_changes c JOIN bjj.events e ON e.id = c.event_id
+WHERE c.field = 'status' AND c.new_value = 'closed';
+```
 
 ## Pipeline de cada DAG
 

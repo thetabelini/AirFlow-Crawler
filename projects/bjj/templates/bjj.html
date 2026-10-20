@@ -69,6 +69,7 @@
       <input type="date" name="ate" value="{{ f.ate }}">
     </label>
     <label class="check"><input type="checkbox" name="passados" value="1" {% if f.passados %}checked{% endif %}>&nbsp;Incluir passados</label>
+    <label class="check"><input type="checkbox" name="removidos" value="1" {% if f.removidos %}checked{% endif %}>&nbsp;Incluir removidos do site</label>
     <button type="submit">Filtrar</button>
     <a href="./">Limpar</a>
   </form>
@@ -96,9 +97,9 @@
           <td class="nowrap">
             {% if e.start_date %}{{ e.start_date.strftime('%d/%m/%Y') }}{% if e.end_date and e.end_date != e.start_date %}<br>a {{ e.end_date.strftime('%d/%m/%Y') }}{% endif %}{% else %}—{% endif %}
           </td>
-          <td>{{ e.name }}{% if e.edition %}<span class="ed">{{ e.edition }}</span>{% endif %}</td>
+          <td><a href="eventos/{{ e.id }}">{{ e.name }}</a>{% if e.edition %}<span class="ed">{{ e.edition }}</span>{% endif %}</td>
           <td>{{ e.city or 'a definir' }}{% if e.state %} - {{ e.state }}{% endif %}</td>
-          <td>{% if e.status == 'open' %}<span class="badge open">aberta</span>{% else %}<span class="badge closed">fechada</span>{% endif %}</td>
+          <td>{% if e.removed_at %}<span class="badge closed">removido</span>{% elif e.status == 'open' %}<span class="badge open">aberta</span>{% else %}<span class="badge closed">fechada</span>{% endif %}</td>
           <td class="nowrap">
             {% if e.event_url %}<a href="{{ e.event_url }}" target="_blank" rel="noopener">evento</a>{% endif %}
             {% if e.registration_url %} · <a href="{{ e.registration_url }}" target="_blank" rel="noopener">inscrever</a>{% endif %}

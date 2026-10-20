@@ -59,6 +59,7 @@ def build_dag(source: Source):
             context = get_current_context()
             started_at = context["dag_run"].start_date or datetime.now(timezone.utc)
             with db.connect(source.project) as conn:
+                db.set_run_id(conn, context["run_id"])
                 new_items = get_pipeline(source.project).store(conn, items)
                 db.record_run(
                     conn,

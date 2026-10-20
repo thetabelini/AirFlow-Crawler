@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ e.name }}</title>
+  <style>
+    :root { --ground: #f6f6f4; --ink: #16191d; --muted: #555c66; --line: #d8dbe0; --card: #fff; --accent: #1f4fa3; --open: #1a7f37; --closed: #8a8f98; --old: #b42318; --new: #1a7f37; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ground: #15181c; --ink: #e8eaed; --muted: #a3aab4; --line: #2e333a; --card: #1d2126; --accent: #8fb3ff; --open: #4cc26a; --closed: #8a8f98; --old: #ff8a80; --new: #4cc26a; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+    a { color: var(--accent); }
+    h1 { margin: 8px 0 4px; font-size: 24px; }
+    h2 { margin: 28px 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .sub { margin: 0; color: var(--muted); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+    dl { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; margin: 0; }
+    dt, dd { margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+    dt { color: var(--muted); font-size: 13px; }
+    dd { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 13px; word-break: break-all; }
+    dl > :nth-last-child(-n+2) { border-bottom: 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14px; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+    .mono { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 12px; }
+    .old { color: var(--old); text-decoration: line-through; }
+    .new { color: var(--new); }
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; color: #fff; }
+    .open { background: var(--open); } .closed { background: var(--closed); }
+  </style>
+</head>
+<body>
+<main>
+  <a href="../">← todos os campeonatos</a>
+  <h1>{{ e.name }}</h1>
+  <p class="sub">
+    {{ e.edition or '' }}
+    · {% if e.removed_at %}<span class="badge closed">removido do site</span>{% elif e.status == 'open' %}<span class="badge open">inscrição aberta</span>{% else %}<span class="badge closed">inscrição fechada</span>{% endif %}
+    {% if e.event_url %}· <a href="{{ e.event_url }}" target="_blank" rel="noopener">página no site</a>{% endif %}
+    {% if e.registration_url %}· <a href="{{ e.registration_url }}" target="_blank" rel="noopener">inscrição</a>{% endif %}
+  </p>
+
+  <h2>Todos os campos</h2>
+  <div class="card">
+    <dl>
+      {% for key in ['id', 'source', 'source_event_id', 'fingerprint', 'name', 'edition', 'start_date', 'end_date', 'city', 'state', 'country', 'venue', 'organizer', 'modality', 'status', 'event_url', 'registration_url', 'registration_deadline', 'first_seen_at', 'last_seen_at', 'removed_at'] %}
+      <dt>{{ key }}</dt>
+      <dd>{% if e[key] is none %}—{% elif key == 'modality' %}{{ e[key]|join(', ') or '—' }}{% else %}{{ e[key] }}{% endif %}</dd>
+      {% endfor %}
+    </dl>
+  </div>
+
+  <h2>Histórico de mudanças</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Quando (UTC)</th><th>O que mudou</th><th>Antes</th><th>Depois</th><th>Execução</th></tr></thead>
+      <tbody>
+        {% for h in e.historico %}
+        <tr>
+          <td class="mono">{{ h.changed_at.strftime('%d/%m/%Y %H:%M') }}</td>
+          {% if h.change_type == 'created' %}
+          <td colspan="3">apareceu pela primeira vez</td>
+          {% else %}
+          <td>{{ labels.get(h.field, h.field) }}</td>
+          <td class="mono old">{{ h.old_value if h.old_value is not none else '—' }}</td>
+          <td class="mono new">{{ h.new_value if h.new_value is not none else '—' }}</td>
+          {% endif %}
+          <td class="mono">{{ h.run_id or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Sem registros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="sub" style="margin-top: 16px">Os mesmos dados em JSON: <a href="../api/eventos/{{ e.id }}">api/eventos/{{ e.id }}</a></p>
+</main>
+</body>
+</html>
