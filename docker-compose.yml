@@ -28,6 +28,7 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/airflow/dags:ro
     - ./core:/opt/airflow/core:ro
     - ./projects:/opt/airflow/projects:ro
+    - ./plugins:/opt/airflow/plugins:ro
     - airflow-logs:/opt/airflow/logs
   depends_on: &airflow-common-depends-on
     postgres:
@@ -159,6 +160,33 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  # Tela e API de leitura dos dados (https://dados.<DOMAIN>), com usuário só de leitura no banco.
+  web:
+    build: web
+    image: crawlers-web:latest
+    environment:
+      WEB_DB_PASSWORD: ${WEB_DB_PASSWORD:?defina WEB_DB_PASSWORD no .env}
+      WEB_USERS: ${WEB_USERS:-}
+      WEB_PUBLIC: ${WEB_PUBLIC:-false}
+      PROJECTS_DIR: /app/projects
+    volumes:
+      - ./web:/app/web:ro
+      - ./core:/app/core:ro
+      - ./projects:/app/projects:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 256m
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+
   caddy:
     image: caddy:2
     environment:
@@ -176,6 +204,8 @@ services:
     depends_on:
       airflow-apiserver:
         condition: service_healthy
+      web:
+        condition: service_started
 
 volumes:
   postgres-data:

@@ -67,13 +67,11 @@ A porta 22 já vem aberta. Opcional: trocar a origem da regra do SSH para o seu 
 ```bash
 ssh ubuntu@<IP>
 
-git clone -b claude/serene-lovelace-s4ony2 https://github.com/thetabelini/AirFlow-Crawler.git
+git clone https://github.com/thetabelini/AirFlow-Crawler.git
 cd AirFlow-Crawler
 bash scripts/setup-vm.sh
 exit
 ```
-
-> Quando o branch for mesclado no `main`, clone sem o `-b claude/serene-lovelace-s4ony2`.
 
 O `setup-vm.sh` libera 80/443 no firewall do próprio Ubuntu (a imagem da Oracle bloqueia tudo além do SSH, mesmo com a security list aberta), cria 4 GB de swap e instala o Docker. Saia e entre de novo para o grupo `docker` valer.
 
@@ -92,6 +90,8 @@ AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
 BJJ_DB_PASSWORD=$(openssl rand -hex 16)
 AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
+WEB_DB_PASSWORD=$(openssl rand -hex 16)
+WEB_USERS=felipe:$(openssl rand -hex 8)
 EOF
 chmod 600 .env
 cat .env      # anote DOMAIN e AIRFLOW_ADMIN_PASSWORD
@@ -114,6 +114,7 @@ O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe
 ## 5. Acessar
 
 Abra `https://<DOMAIN>` e entre com `admin` e a `AIRFLOW_ADMIN_PASSWORD`.
+A tela de dados fica em `https://dados.<DOMAIN>` (link **Dados** no menu do Airflow), com o usuário e a senha de `WEB_USERS`.
 Ative a DAG `bjj__soucompetidor` e clique em **Trigger** para a primeira coleta. Depois disso ela roda sozinha uma vez por dia.
 
 Conferir os dados:
