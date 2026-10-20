@@ -51,3 +51,8 @@ def record_run(
             query,
             (run_id, source, started_at, pages_fetched, items_found, new_items, errors),
         )
+
+
+def set_run_id(conn: psycopg.Connection, run_id: str) -> None:
+    """Identifica a execução da DAG na transação atual (lido por triggers de histórico)."""
+    conn.execute("SELECT set_config('crawler.run_id', %s, true)", (run_id,))

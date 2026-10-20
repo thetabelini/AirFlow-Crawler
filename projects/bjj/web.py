@@ -1,9 +1,9 @@
 """Tela e API de leitura dos campeonatos (montadas em /bjj/ pelo web/app.py)."""
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -13,8 +13,44 @@ router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 COLUMNS = """
-    source, source_event_id, name, edition, start_date, end_date, city, state, country,
-    modality, status, event_url, registration_url, first_seen_at, last_seen_at
+    id, source, source_event_id, fingerprint, name, edition, start_date, end_date,
+    city, state, country, venue, organizer, modality, status, event_url,
+    registration_url, registration_deadline, first_seen_at, last_seen_at, removed_at
+"""
+
+# Nomes dos campos do histórico, para a tela.
+FIELD_LABELS = {
+    "name": "nome",
+    "edition": "edição",
+    "start_date": "início",
+    "end_date": "fim",
+    "city": "cidade",
+    "state": "UF",
+    "country": "país",
+    "venue": "local",
+    "organizer": "organizador",
+    "modality": "modalidade",
+    "event_url": "página do evento",
+    "registration_url": "link de inscrição",
+    "registration_deadline": "prazo de inscrição",
+    "status": "inscrição",
+    "fingerprint": "fingerprint",
+    "removed_at": "removido do site em",
+}
+
+HISTORY = """
+SELECT changed_at, run_id, change_type, field, old_value, new_value
+FROM bjj.event_changes WHERE event_id = %(id)s ORDER BY changed_at, id
+"""
+
+CHANGES_FEED = """
+SELECT c.id, c.changed_at, c.run_id, c.change_type, c.field, c.old_value, c.new_value,
+       e.id AS event_id, e.source, e.source_event_id, e.name
+FROM bjj.event_changes c JOIN bjj.events e ON e.id = c.event_id
+WHERE (%(desde)s::timestamptz IS NULL OR c.changed_at >= %(desde)s)
+  AND (%(campo)s::text IS NULL OR c.field = %(campo)s)
+ORDER BY c.changed_at, c.id
+LIMIT %(limit)s OFFSET %(offset)s
 """
 
 
@@ -32,8 +68,11 @@ def build_filters(
     desde: date | None = None,
     ate: date | None = None,
     passados: bool = False,
+    removidos: bool = False,
 ) -> tuple[str, dict]:
     clauses, params = [], {}
+    if not removidos:
+        clauses.append("removed_at IS NULL")
     if not passados:
         clauses.append("(COALESCE(end_date, start_date) >= CURRENT_DATE OR start_date IS NULL)")
     if uf:
@@ -98,8 +137,11 @@ def page(
     desde: str | None = None,
     ate: str | None = None,
     passados: str | None = None,
+    removidos: str | None = None,
 ):
-    filters = build_filters(uf, status, q, parse_date(desde), parse_date(ate), bool(passados))
+    filters = build_filters(
+        uf, status, q, parse_date(desde), parse_date(ate), bool(passados), bool(removidos)
+    )
     with connect("bjj") as conn:
         total, events = fetch_events(conn, filters, limit=500, offset=0)
         stats = fetch_stats(conn, filters)
@@ -124,6 +166,7 @@ def page(
                 "desde": desde or "",
                 "ate": ate or "",
                 "passados": bool(passados),
+                "removidos": bool(removidos),
             },
         },
     )
@@ -137,12 +180,13 @@ def api_events(
     desde: date | None = Query(None, description="Início a partir de (AAAA-MM-DD)"),
     ate: date | None = Query(None, description="Início até (AAAA-MM-DD)"),
     passados: bool = Query(False, description="Incluir eventos que já aconteceram"),
+    removidos: bool = Query(False, description="Incluir eventos que sumiram do site"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict:
     with connect("bjj") as conn:
         total, events = fetch_events(
-            conn, build_filters(uf, status, q, desde, ate, passados), limit, offset
+            conn, build_filters(uf, status, q, desde, ate, passados, removidos), limit, offset
         )
     return {"total": total, "limit": limit, "offset": offset, "eventos": events}
 
@@ -155,3 +199,45 @@ def api_stats(
 ) -> dict:
     with connect("bjj") as conn:
         return fetch_stats(conn, build_filters(uf, status, None, None, None, passados))
+
+
+def fetch_event_with_history(conn, event_id: int) -> dict | None:
+    event = conn.execute(f"SELECT {COLUMNS} FROM bjj.events WHERE id = %(id)s", {"id": event_id}).fetchone()
+    if event is None:
+        return None
+    return {**event, "historico": conn.execute(HISTORY, {"id": event_id}).fetchall()}
+
+
+@router.get("/eventos/{event_id}", response_class=HTMLResponse, include_in_schema=False)
+def event_page(request: Request, event_id: int):
+    with connect("bjj") as conn:
+        event = fetch_event_with_history(conn, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    return templates.TemplateResponse(
+        request, "bjj_evento.html", {"e": event, "labels": FIELD_LABELS}
+    )
+
+
+@router.get("/api/eventos/{event_id}", summary="Um campeonato, com todos os campos e o histórico de mudanças")
+def api_event(event_id: int) -> dict:
+    with connect("bjj") as conn:
+        event = fetch_event_with_history(conn, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    return event
+
+
+@router.get("/api/mudancas", summary="Mudanças em todos os campeonatos, da mais antiga para a mais nova")
+def api_changes(
+    desde: datetime | None = Query(None, description="Só mudanças a partir deste momento (ISO 8601)"),
+    campo: str | None = Query(None, description="Só mudanças deste campo, ex.: status"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    with connect("bjj") as conn:
+        rows = conn.execute(
+            CHANGES_FEED,
+            {"desde": desde, "campo": campo, "limit": limit, "offset": offset},
+        ).fetchall()
+    return {"limit": limit, "offset": offset, "mudancas": rows}
