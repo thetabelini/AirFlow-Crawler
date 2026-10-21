@@ -29,9 +29,12 @@ Cada assunto é um **projeto** em `projects/<nome>/`, com banco, pool e DAGs pr�
 | `airflow-dag-processor` | Lê `dags/` |
 | `airflow-triggerer` | Tasks deferrable |
 | `web` | Tela e API de leitura dos dados (`https://dados.<DOMAIN>`), com usuário só de leitura no banco |
-| `caddy` | HTTPS automático na frente da interface e da tela de dados (portas 80 e 443) |
+| `kafka` | Apache Kafka (KRaft, um nó): cada coleta também é publicada aqui ([docs/kafka.md](docs/kafka.md)) |
+| `kafka-init` | Cria os tópicos de cada projeto; roda a cada `up` e sai |
+| `kafka-ui` | Interface do Kafka (`https://kafka.<DOMAIN>`), com login |
+| `caddy` | HTTPS automático na frente da interface, da tela de dados e do Kafka UI (portas 80 e 443) |
 
-A imagem do Airflow é estendida no `Dockerfile` com `httpx`, `selectolax`, `psycopg` e Playwright + Chromium.
+A imagem do Airflow é estendida no `Dockerfile` com `httpx`, `selectolax`, `psycopg`, `confluent-kafka` e Playwright + Chromium.
 
 ## Deploy na Oracle Cloud
 
@@ -52,6 +55,7 @@ AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
 WEB_DB_PASSWORD=$(openssl rand -hex 16)
 WEB_USERS=felipe:$(openssl rand -hex 8)
+KAFKA_UI_PASSWORD=$(openssl rand -hex 12)
 EOF
 ```
 
@@ -65,6 +69,7 @@ O primeiro build demora alguns minutos (baixa o Chromium). Depois:
 
 - `https://localhost` (ou o seu `DOMAIN`): interface do Airflow, login com `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD`
 - `http://127.0.0.1:8080`: acesso direto, sem o Caddy
+- `https://kafka.localhost`: Kafka UI, login `admin` / `KAFKA_UI_PASSWORD`
 
 As DAGs nascem pausadas: ative na interface e use "Trigger" para rodar na hora.
 
@@ -141,7 +146,15 @@ WHERE c.field = 'status' AND c.new_value = 'closed';
 1. `fetch_listing`: um request na URL fixa da fonte (httpx, ou Playwright se `js: true`)
 2. `parse`: o parser da fonte extrai todos os itens da página; se não achar nenhum, a task falha (o layout do site provavelmente mudou)
 3. `normalize`: `projects/<nome>/pipeline.py` limpa e completa cada item
-4. `upsert_notify`: `pipeline.store()` grava no banco do projeto, a execução vai para `<projeto>.crawl_runs` e os itens novos aparecem no log
+4. Em paralelo:
+   - `upsert_notify`: `pipeline.store()` grava no banco do projeto, a execução vai para `<projeto>.crawl_runs` e os itens novos aparecem no log
+   - `publish`: publica cada item em `<projeto>.events.raw` e o fim da coleta em `<projeto>.runs`, no Kafka
+
+## Kafka
+
+Cada coleta também vai para o Kafka, para ser lida por consumidores independentes da DAG. Tópicos, formato das mensagens, comandos para observar, exercícios e o que o consumidor precisa fazer estão em [docs/kafka.md](docs/kafka.md).
+
+Por enquanto a DAG continua gravando no banco. Quando existir um consumidor que grave, `CRAWLER_WRITE_DB=false` no `.env` tira essa gravação da DAG.
 
 ## Adicionando um projeto
 
@@ -152,7 +165,7 @@ WHERE c.field = 'status' AND c.new_value = 'closed';
    - `sql/001_init.sql`: as tabelas, no schema `<nome>`
    - `tests/`: testes com um recorte real da página em `tests/fixtures/`
 2. Adicione `<NOME>_DB_PASSWORD` ao `.env`.
-3. `docker compose up -d`: o `db-init` cria o banco e o `airflow-init` cria o pool. As DAGs aparecem sozinhas.
+3. `docker compose up -d`: o `db-init` cria o banco, o `airflow-init` cria o pool e o `kafka-init` cria os tópicos. As DAGs aparecem sozinhas.
 
 `projects/bjj/` serve de modelo.
 
@@ -189,11 +202,12 @@ scripts/db-init.sh     cria os bancos dos projetos e aplica as migrações
 scripts/setup-vm.sh    prepara a VM da Oracle (firewall, swap, Docker)
 scripts/backup.sh      backup diário dos bancos (local e, opcional, Object Storage)
 scripts/api-keys.sh    cria, lista e revoga chaves de API
-docs/                  deploy na Oracle
+scripts/kafka-init.sh  cria os tópicos do Kafka de cada projeto
+docs/                  deploy na Oracle e Kafka
 dags/dag_factory.py    uma DAG por fonte de cada projeto
-plugins/links.py       links para a tela e a API no menu Plugins do Airflow
+plugins/links.py       links para a tela, a API e o Kafka UI no menu Plugins do Airflow
 web/                   tela e API de leitura (FastAPI), container próprio; web/sql/ é o banco das chaves
-core/                  fetch, leitura dos projetos, banco, funções de texto
+core/                  fetch, leitura dos projetos, banco, Kafka (stream.py), funções de texto
 core/sql/              migrações aplicadas em todo projeto (crawl_runs)
 tests/                 testes do core
 projects/
@@ -214,9 +228,12 @@ projects/
 | airflow-apiserver | 2 GB |
 | postgres | 2 GB |
 | airflow-dag-processor | 1 GB |
+| kafka | 1 GB |
+| kafka-ui | 768 MB |
 | airflow-triggerer | 512 MB |
+| web | 256 MB |
 | caddy | 256 MB |
 
-Sobram uns 10 GB para o sistema e para aumentar o paralelismo (`AIRFLOW__CORE__PARALLELISM`, hoje 4).
+Sobram uns 8 GB para o sistema e para aumentar o paralelismo (`AIRFLOW__CORE__PARALLELISM`, hoje 4).
 
-Para uma VM de 1 OCPU e 4 GB existe o perfil `docker-compose.small.yml` (ative com `COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml` no `.env`): 1 processo na API, paralelismo 2, sem triggerer e limites menores. Medido com a DAG do BJJ rodando, a stack usa cerca de 1,3 GB.
+Para uma VM de 1 OCPU e 4 GB existe o perfil `docker-compose.small.yml` (ative com `COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml` no `.env`): 1 processo na API, paralelismo 2, sem triggerer, sem Kafka (sobe com `--profile kafka`) e limites menores. Medido com a DAG do BJJ rodando, a stack usa cerca de 1,3 GB.

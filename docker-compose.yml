@@ -1,4 +1,4 @@
-# Plataforma de crawlers: Airflow 3 (LocalExecutor) + PostgreSQL + Caddy em uma única VM.
+# Plataforma de crawlers: Airflow 3 (LocalExecutor) + PostgreSQL + Kafka + Caddy em uma única VM.
 # Cada projeto em projects/<nome>/ ganha um banco, um pool e uma DAG por fonte.
 # Todas as variáveis vêm do arquivo .env (veja .env.example).
 
@@ -24,6 +24,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     PYTHONPATH: /opt/airflow
     PROJECTS_DIR: /opt/airflow/projects
+    # Com essa variável, cada coleta também é publicada no Kafka (core/stream.py).
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   volumes:
     - ./dags:/opt/airflow/dags:ro
     - ./core:/opt/airflow/core:ro
@@ -190,6 +192,74 @@ services:
       db-init:
         condition: service_completed_successfully
 
+  # Kafka em modo KRaft com um único nó, que faz o papel de broker e de controller.
+  kafka:
+    image: apache/kafka:4.3.2
+    environment:
+      CLUSTER_ID: g5b3MqrDTJaWJSbnOuL08g
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # PLAINTEXT para os containers (kafka:9092); EXTERNAL para programas rodando na
+      # própria VM ou por túnel SSH (localhost:9094).
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Um nó só: não há onde guardar réplicas.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "1"
+      # Os tópicos são criados pelo kafka-init; um nome digitado errado vira erro, não um tópico novo.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:9094:9094"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+    mem_limit: 1g
+    restart: always
+
+  # Cria os tópicos de cada projeto (scripts/kafka-init.sh). Roda a cada "up" e sai.
+  kafka-init:
+    image: apache/kafka:4.3.2
+    environment:
+      KAFKA_HEAP_OPTS: -Xmx256m
+    volumes:
+      - ./scripts/kafka-init.sh:/kafka-init.sh:ro
+      - ./projects:/projects:ro
+    entrypoint: ["bash", "/kafka-init.sh"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+
+  # Interface para ver tópicos, mensagens e grupos de consumidores (https://kafka.<DOMAIN>).
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    environment:
+      KAFKA_CLUSTERS_0_NAME: crawler
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:-admin}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?defina KAFKA_UI_PASSWORD no .env}
+      JAVA_OPTS: -Xmx384m
+    mem_limit: 768m
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   caddy:
     image: caddy:2
     # Monta a pasta (não o arquivo) e usa --watch: depois de um git pull que mude o
@@ -218,3 +288,4 @@ volumes:
   airflow-logs:
   caddy-data:
   caddy-config:
+  kafka-data:
