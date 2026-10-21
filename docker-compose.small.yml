@@ -29,7 +29,7 @@ services:
   airflow-triggerer:
     profiles: ["triggerer"]
 
-  # Kafka, kafka-init e Kafka UI juntos pedem uns 2 GB; só sobem com --profile kafka.
+  # Kafka, kafka-init, consumidor e Kafka UI juntos pedem uns 2 GB; só sobem com --profile kafka.
   kafka:
     profiles: ["kafka"]
 
@@ -37,6 +37,9 @@ services:
     profiles: ["kafka"]
 
   kafka-ui:
+    profiles: ["kafka"]
+
+  consumer:
     profiles: ["kafka"]
 
   caddy:

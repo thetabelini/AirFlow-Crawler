@@ -31,6 +31,7 @@ Cada assunto é um **projeto** em `projects/<nome>/`, com banco, pool e DAGs pr�
 | `web` | Tela e API de leitura dos dados (`https://dados.<DOMAIN>`), com usuário só de leitura no banco |
 | `kafka` | Apache Kafka (KRaft, um nó): cada coleta também é publicada aqui ([docs/kafka.md](docs/kafka.md)) |
 | `kafka-init` | Cria os tópicos de cada projeto; roda a cada `up` e sai |
+| `consumer` | Lê o Kafka e grava no banco de cada projeto, ignorando mensagens repetidas |
 | `kafka-ui` | Interface do Kafka (`https://kafka.<DOMAIN>`), com login |
 | `caddy` | HTTPS automático na frente da interface, da tela de dados e do Kafka UI (portas 80 e 443) |
 
@@ -152,9 +153,9 @@ WHERE c.field = 'status' AND c.new_value = 'closed';
 
 ## Kafka
 
-Cada coleta também vai para o Kafka, para ser lida por consumidores independentes da DAG. Tópicos, formato das mensagens, comandos para observar, exercícios e o que o consumidor precisa fazer estão em [docs/kafka.md](docs/kafka.md).
+Cada coleta também vai para o Kafka, e o serviço `consumer` grava no banco o que chega, conferindo antes se a mensagem é repetida ou se o evento não mudou. Tópicos, formato das mensagens, como o consumidor trata repetidas e erros, comandos para observar e exercícios estão em [docs/kafka.md](docs/kafka.md).
 
-Por enquanto a DAG continua gravando no banco. Quando existir um consumidor que grave, `CRAWLER_WRITE_DB=false` no `.env` tira essa gravação da DAG.
+Por enquanto a DAG também grava no banco (os dois juntos não duplicam nada). Com o consumidor conferido, `CRAWLER_WRITE_DB=false` no `.env` deixa a gravação só com ele.
 
 ## Adicionando um projeto
 
@@ -162,6 +163,7 @@ Por enquanto a DAG continua gravando no banco. Quando existir um consumidor que 
    - `sources.yaml`: um bloco por site (`name`, `url`, `parser`, `schedule`, `js`)
    - `parsers/<parser>.py`: `parse(html) -> list[dict]`
    - `pipeline.py`: `normalize(source, raw) -> dict` e `store(conn, items) -> list[dict]` (devolve os novos)
+   - `consumer.py` (opcional): `handle_item(conn, message)` e `handle_run(conn, message)`, para o consumidor do Kafka gravar o projeto
    - `sql/001_init.sql`: as tabelas, no schema `<nome>`
    - `tests/`: testes com um recorte real da página em `tests/fixtures/`
 2. Adicione `<NOME>_DB_PASSWORD` ao `.env`.
@@ -207,6 +209,7 @@ docs/                  deploy na Oracle e Kafka
 dags/dag_factory.py    uma DAG por fonte de cada projeto
 plugins/links.py       links para a tela, a API e o Kafka UI no menu Plugins do Airflow
 web/                   tela e API de leitura (FastAPI), container próprio; web/sql/ é o banco das chaves
+consumer/              consumidor do Kafka que grava no banco, container próprio
 core/                  fetch, leitura dos projetos, banco, Kafka (stream.py), funções de texto
 core/sql/              migrações aplicadas em todo projeto (crawl_runs)
 tests/                 testes do core
@@ -216,6 +219,7 @@ projects/
    ├─ parsers/soucompetidor.py
    ├─ normalize.py, store.py, pipeline.py
    ├─ web.py, templates/   tela e API do projeto
+   ├─ consumer.py          o que o consumidor do Kafka faz com cada mensagem
    ├─ sql/001_init.sql
    └─ tests/
 ```
@@ -232,8 +236,9 @@ projects/
 | kafka-ui | 768 MB |
 | airflow-triggerer | 512 MB |
 | web | 256 MB |
+| consumer | 256 MB |
 | caddy | 256 MB |
 
-Sobram uns 8 GB para o sistema e para aumentar o paralelismo (`AIRFLOW__CORE__PARALLELISM`, hoje 4).
+Sobram uns 7,5 GB para o sistema e para aumentar o paralelismo (`AIRFLOW__CORE__PARALLELISM`, hoje 4).
 
 Para uma VM de 1 OCPU e 4 GB existe o perfil `docker-compose.small.yml` (ative com `COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml` no `.env`): 1 processo na API, paralelismo 2, sem triggerer, sem Kafka (sobe com `--profile kafka`) e limites menores. Medido com a DAG do BJJ rodando, a stack usa cerca de 1,3 GB.

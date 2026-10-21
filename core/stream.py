@@ -3,7 +3,7 @@
 Tópicos de cada projeto (criados por scripts/kafka-init.sh):
   <projeto>.events.raw   um item normalizado por mensagem, chave "<fonte>:<source_event_id>"
   <projeto>.runs         uma mensagem por coleta, com todas as chaves vistas
-  <projeto>.events.dlq   reservado ao consumidor, para itens rejeitados
+  <projeto>.events.dlq   mensagens que o consumidor rejeitou, com o motivo
 
 Formato das mensagens: docs/kafka.md.
 """
@@ -14,6 +14,10 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 SCHEMA_VERSION = 1
+
+
+class InvalidMessage(ValueError):
+    """Mensagem que nunca vai poder ser gravada, por mais que se tente: vai para a DLQ."""
 
 
 def enabled() -> bool:
@@ -42,6 +46,49 @@ def _default(value):
 
 def encode(message: dict) -> bytes:
     return json.dumps(message, default=_default, ensure_ascii=False).encode()
+
+
+def decode(value: bytes | None) -> dict:
+    try:
+        message = json.loads(value)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InvalidMessage(f"não é JSON: {exc}") from None
+    if not isinstance(message, dict):
+        raise InvalidMessage("não é um objeto JSON")
+    return message
+
+
+def check(message: dict, project: str, expected_type: str) -> None:
+    """Confere o envelope (versão, tipo, projeto); o conteúdo é com o consumidor de cada projeto."""
+    if message.get("schema_version") != SCHEMA_VERSION:
+        raise InvalidMessage(f"schema_version desconhecida: {message.get('schema_version')!r}")
+    if message.get("type") != expected_type:
+        raise InvalidMessage(f"esperava type={expected_type!r}, veio {message.get('type')!r}")
+    if message.get("project") != project:
+        raise InvalidMessage(f"mensagem do projeto {message.get('project')!r} no tópico de {project!r}")
+
+
+def parse_time(message: dict, field: str) -> datetime:
+    try:
+        value = datetime.fromisoformat(message[field])
+    except (KeyError, TypeError, ValueError):
+        raise InvalidMessage(f"{field} ausente ou inválido: {message.get(field)!r}") from None
+    if value.tzinfo is None:
+        raise InvalidMessage(f"{field} sem fuso horário: {message[field]!r}")
+    return value
+
+
+def dlq_message(topic: str, partition: int, offset: int, value: bytes | None, error: str) -> dict:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "type": "rejected",
+        "error": error,
+        "topic": topic,
+        "partition": partition,
+        "offset": offset,
+        "rejected_at": datetime.now(timezone.utc),
+        "original": value.decode(errors="replace") if value is not None else None,
+    }
 
 
 def item_message(project: str, source: str, run_id: str, item: dict, produced_at: datetime) -> dict:

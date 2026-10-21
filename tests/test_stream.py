@@ -88,3 +88,32 @@ def test_falha_se_algo_nao_foi_entregue(producer):
 def test_encode_recusa_tipo_desconhecido():
     with pytest.raises(TypeError):
         stream.encode({"x": object()})
+
+
+def test_decode_aceita_so_objeto_json():
+    assert stream.decode(b'{"a": 1}') == {"a": 1}
+    for value in (b"nao-e-json", b"[1, 2]", b"\xff\xfe", None):
+        with pytest.raises(stream.InvalidMessage):
+            stream.decode(value)
+
+
+def test_check_confere_versao_tipo_e_projeto():
+    ok = {"schema_version": stream.SCHEMA_VERSION, "type": "item", "project": "bjj"}
+    stream.check(ok, "bjj", "item")
+    for wrong in ({"schema_version": 99}, {"type": "run_finished"}, {"project": "outro"}):
+        with pytest.raises(stream.InvalidMessage):
+            stream.check({**ok, **wrong}, "bjj", "item")
+
+
+def test_parse_time_exige_fuso():
+    assert stream.parse_time({"t": STARTED.isoformat()}, "t") == STARTED
+    for value in (None, "ontem", "2026-10-01T12:00:00"):
+        with pytest.raises(stream.InvalidMessage):
+            stream.parse_time({"t": value}, "t")
+
+
+def test_dlq_guarda_a_mensagem_original_e_o_motivo():
+    message = stream.dlq_message("bjj.events.raw", 2, 41, b'{"quebrado"', "não é JSON")
+    assert message["type"] == "rejected" and message["original"] == '{"quebrado"'
+    assert (message["topic"], message["partition"], message["offset"]) == ("bjj.events.raw", 2, 41)
+    assert json.loads(stream.encode(message))["error"] == "não é JSON"

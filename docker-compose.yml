@@ -247,6 +247,29 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Lê o que as DAGs publicam no Kafka e grava no banco de cada projeto (consumer/run.py).
+  consumer:
+    build: consumer
+    image: crawlers-consumer:latest
+    # As senhas <PROJETO>_DB_PASSWORD vêm do .env, como no Airflow.
+    env_file: .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      PROJECTS_DIR: /app/projects
+    volumes:
+      - ./consumer:/app/consumer:ro
+      - ./core:/app/core:ro
+      - ./projects:/app/projects:ro
+    mem_limit: 256m
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
   # Interface para ver tópicos, mensagens e grupos de consumidores (https://kafka.<DOMAIN>).
   kafka-ui:
     image: kafbat/kafka-ui:v1.5.0

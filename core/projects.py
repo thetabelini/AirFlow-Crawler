@@ -4,6 +4,7 @@ Um projeto é uma pasta projects/<nome>/ com:
 - sources.yaml: um bloco por site
 - parsers/<parser>.py: parse(html) -> list[dict]
 - pipeline.py: normalize(source, raw) -> dict e store(conn, items) -> list[dict] (os novos)
+- consumer.py (opcional): handle_item e handle_run, usados pelo consumidor do Kafka
 - sql/: migrações do banco <nome>
 """
 

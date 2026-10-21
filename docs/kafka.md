@@ -1,14 +1,14 @@
 # Kafka
 
-Cada coleta, além de gravar no banco, publica os itens no Kafka. A ideia é separar quem **coleta** (a DAG) de quem **usa** os dados (consumidores), e ter um registro de tudo o que saiu de cada coleta que pode ser lido de novo do zero.
+Cada coleta publica os itens no Kafka, e um consumidor os grava no banco. A ideia é separar quem **coleta** (a DAG) de quem **usa** os dados (consumidores), e ter um registro de tudo o que saiu de cada coleta que pode ser lido de novo do zero.
 
 ```
 DAG <projeto>__<fonte>
-  fetch_listing → parse → normalize ─┬─ upsert_notify → banco (como antes)
-                                      └─ publish       → Kafka → consumidor (a escrever)
+  fetch_listing → parse → normalize ─┬─ upsert_notify → banco (enquanto CRAWLER_WRITE_DB=true)
+                                      └─ publish       → Kafka → consumer → banco
 ```
 
-Enquanto não houver consumidor, a gravação no banco continua na DAG. Quando ele existir, `CRAWLER_WRITE_DB=false` no `.env` tira a `upsert_notify` da DAG e o consumidor passa a ser o único a gravar.
+Os dois caminhos gravam a mesma coisa e podem rodar juntos: o consumidor reconhece o que já está no banco (veja [Repetidas](#repetidas)). Depois de conferir que o consumidor está gravando, `CRAWLER_WRITE_DB=false` no `.env` tira a `upsert_notify` da DAG e ele passa a ser o único a gravar.
 
 ## Conceitos em 1 minuto
 
@@ -27,6 +27,7 @@ Enquanto não houver consumidor, a gravação no banco continua na DAG. Quando e
 | --- | --- |
 | `kafka` | Broker Apache Kafka 4 em modo KRaft (sem ZooKeeper), um nó só. Dados no volume `kafka-data` |
 | `kafka-init` | Cria os tópicos de cada projeto (`scripts/kafka-init.sh`); roda a cada `up` e sai |
+| `consumer` | Lê os tópicos e grava no banco de cada projeto (`consumer/run.py`), no grupo `store` |
 | `kafka-ui` | Interface em `https://kafka.<DOMAIN>` (login com `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD`); no Airflow, menu **Plugins → Kafka UI** |
 
 Endereços do broker:
@@ -44,7 +45,7 @@ Criados por projeto (para o `bjj`):
 | --- | --- | --- | --- |
 | `bjj.events.raw` | 3 | `<fonte>:<source_event_id>` | Um item normalizado por mensagem |
 | `bjj.runs` | 1 | `<fonte>` | Uma mensagem por coleta, publicada depois dos itens, com todas as chaves vistas |
-| `bjj.events.dlq` | 1 | a do item | Para o consumidor guardar o que rejeitou (*dead letter queue*); a DAG não escreve aqui |
+| `bjj.events.dlq` | 1 | a da mensagem rejeitada | O que o consumidor não conseguiu gravar (*dead letter queue*), com o motivo |
 
 A criação automática de tópicos está desligada: produzir num nome errado dá erro em vez de criar um tópico novo.
 
@@ -103,7 +104,7 @@ A lista `keys` é o que permite ao consumidor saber quais eventos **sumiram** do
 
 ## Garantias (e o que elas exigem do consumidor)
 
-- **Pelo menos uma vez.** Se a task `publish` falhar no meio (Kafka fora do ar, por exemplo), o Airflow tenta de novo e publica a coleta inteira outra vez. O mesmo item pode aparecer duas vezes: gravar precisa ser idempotente (o `UPSERT` por `(source, source_event_id)` de `projects/bjj/store.py` já é).
+- **Pelo menos uma vez.** Se a task `publish` falhar no meio (Kafka fora do ar, por exemplo), o Airflow tenta de novo e publica a coleta inteira outra vez. E se o consumidor cair entre gravar no banco e fazer o commit do offset, ele relê a mensagem. O mesmo item pode chegar mais de uma vez: o consumidor precisa reconhecer o que já gravou.
 - **Ordem por evento**, não global: itens de eventos diferentes podem chegar em qualquer ordem, e `bjj.runs` pode ser lido antes ou depois dos itens da mesma coleta.
 - A task `publish` só termina com sucesso quando o Kafka confirmou todas as mensagens; senão falha e entra nas tentativas da DAG.
 
@@ -147,26 +148,76 @@ $K/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-g
 4. Procure a mesma chave (ex.: `soucompetidor:P2775`) em coletas diferentes: ela está sempre na mesma partição.
 5. Pare o Kafka (`docker compose stop kafka`), rode a DAG e veja a `publish` falhar e entrar em nova tentativa, enquanto a `upsert_notify` grava normalmente. Suba de novo (`docker compose start kafka`).
 
-## O consumidor (próximo passo)
+## O consumidor
 
-Ainda não existe: fica para você escrever. O que ele precisa fazer, para substituir a gravação da DAG:
+`consumer/run.py` é o laço comum a todos os projetos; o que fazer com cada mensagem fica em `projects/<nome>/consumer.py` (`handle_item` e `handle_run`). Projeto sem esse arquivo não é consumido.
 
-1. Ler `bjj.events.raw` e `bjj.runs` num grupo próprio (ex.: `bjj-store`), com `enable.auto.commit=false`.
-2. Para cada item: validar (`schema_version` conhecida, campos obrigatórios) e gravar com o mesmo `upsert` de `projects/bjj/store.py`, chamando antes `core.db.set_run_id(conn, run_id)` para o histórico registrar a coleta. Item inválido vai para `bjj.events.dlq`, com o motivo, em vez de travar o consumidor.
-3. Para cada `run_finished`: marcar como removidos os eventos da fonte que não estão em `keys` e registrar a execução em `bjj.crawl_runs`.
-4. Fazer o commit do offset **depois** do `COMMIT` no banco. Se cair entre os dois, a mensagem é lida de novo e o upsert absorve a repetição.
-5. Rodar como mais um serviço no `docker-compose.yml`, conectando em `kafka:9092`.
+Para cada mensagem, na ordem:
 
-Com ele rodando e conferido, `CRAWLER_WRITE_DB=false` no `.env` e `docker compose up -d`.
+1. Confere o envelope (`schema_version`, `type`, `project`) e os campos do item (obrigatórios, datas, status).
+2. Grava numa transação do banco.
+3. Só depois do `COMMIT` no banco, faz o commit do offset no Kafka. Se o processo cair entre os dois, a mensagem volta e é reconhecida como repetida.
 
-Uma biblioteca boa para Python é a mesma que a DAG usa, `confluent-kafka`. Um começo:
+Quando algo dá errado:
+
+| Problema | O que acontece |
+| --- | --- |
+| Mensagem que nunca vai poder ser gravada (não é JSON, versão desconhecida, campo obrigatório vazio, status inválido, o banco recusou os dados) | Vai para `bjj.events.dlq` com o motivo, a posição original (tópico, partição, offset) e o texto da mensagem. O consumidor segue para a próxima |
+| Banco ou Kafka fora do ar | O processo cai **sem** o commit do offset; o Docker o reinicia (a cada poucos segundos) até o banco voltar, e a mensagem é lida de novo. Nada se perde |
+
+### Repetidas
+
+Antes de gravar um item, o consumidor compara com o que está no banco:
+
+| Resultado no log | Quando | O que grava |
+| --- | --- | --- |
+| `novo` | O evento não existe | O evento, e uma linha `created` no histórico |
+| `alterado (status, start_date)` | Algum campo mudou (lista quais) | O evento; o histórico registra cada campo |
+| `voltou ao site` | Estava marcado como removido | O evento, com `removed_at` limpo |
+| `igual` | Mensagem nova, mas nenhum campo mudou (o caso comum: a coleta diária republica tudo) | Só `last_seen_at`; nada no histórico |
+| `repetida` | O `produced_at` da mensagem é igual ou anterior ao da última mensagem aplicada ao evento (coluna `last_produced_at`) | Nada |
+
+O `repetida` cobre dois casos: o Kafka entregou a mesma mensagem de novo, e o consumidor está relendo o tópico do zero. No segundo, sem essa verificação, versões antigas de um evento sobrescreveriam a atual.
+
+Para `bjj.runs`, a coleta é `repetida` se o `run_id` já está em `bjj.crawl_runs`, e `antiga` se já há uma coleta mais nova da mesma fonte; nos dois casos nada muda. Senão, marca como removidos os eventos da fonte que não estão em `keys` e registra a coleta em `bjj.crawl_runs`. Uma coleta com `keys` vazia vai para a DLQ, em vez de marcar tudo como removido.
+
+O `new_items` registrado conta os eventos criados por aquela coleta que o consumidor já tinha gravado ao ler o fim dela. Como os itens e o fim da coleta estão em tópicos diferentes, um item que chegue depois não entra na conta (na prática eles chegam antes).
+
+### Acompanhando
+
+```bash
+docker compose logs -f consumer                    # uma linha por mensagem: tópico[partição]@offset chave: resultado
+docker compose logs consumer | grep -c ": igual"   # quantas vieram sem mudança
+$K/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic bjj.events.dlq --from-beginning
+```
+
+No Kafka UI, **Consumers → store** mostra o lag: quanto falta o consumidor ler. Parado em 0 é o normal.
+
+### Mais exercícios
+
+6. Rode a DAG duas vezes e veja no log do consumidor: 67 `novo` (ou `igual`, se a DAG também gravou) e depois 67 `igual`.
+7. Releia tudo do zero e veja cada mensagem cair em `repetida`, sem mudar nada no banco:
+   ```bash
+   docker compose stop consumer
+   $K/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group store --all-topics --reset-offsets --to-earliest --execute
+   docker compose start consumer && docker compose logs -f consumer
+   ```
+   O grupo precisa estar parado para o reset: por isso o `stop`.
+8. Mande uma mensagem quebrada e encontre-a na DLQ:
+   ```bash
+   echo 'soucompetidor:X1|isso nao e json' | docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh \
+     --bootstrap-server localhost:9092 --topic bjj.events.raw --reader-property parse.key=true --reader-property 'key.separator=|'
+   ```
+9. Pare o banco (`docker compose stop postgres`), rode a DAG e veja o consumidor reiniciando em `docker compose ps`. Suba o banco: ele grava o que ficou pendente.
+
+Para escrever outro consumidor (um que mande alerta de evento novo, por exemplo), use outro `group.id`: ele lê tudo de forma independente do `store`, no seu ritmo. Do seu computador, com o túnel SSH, `localhost:9094`:
 
 ```python
 from confluent_kafka import Consumer
 
 consumer = Consumer({
     "bootstrap.servers": "localhost:9094",
-    "group.id": "bjj-store",
+    "group.id": "meu-teste",
     "auto.offset.reset": "earliest",
     "enable.auto.commit": False,
 })
@@ -185,5 +236,6 @@ while True:
 | --- | --- |
 | kafka | 1 GB (heap de 512 MB) |
 | kafka-ui | 768 MB |
+| consumer | 256 MB |
 
-No perfil `docker-compose.small.yml` os três serviços do Kafka só sobem com `--profile kafka`, e a DAG não cria a task `publish`.
+No perfil `docker-compose.small.yml` os quatro serviços do Kafka só sobem com `--profile kafka`, e a DAG não cria a task `publish`.
