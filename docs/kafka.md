@@ -109,7 +109,12 @@ A lista `keys` é o que permite ao consumidor saber quais eventos **sumiram** do
 
 ## Para olhar o que está acontecendo
 
-Na interface (`https://kafka.<DOMAIN>`): **Topics → bjj.events.raw → Messages** mostra as mensagens com chave, partição e offset; **Consumers** mostra cada grupo e quanto falta ele ler (*lag*).
+Na interface (`https://kafka.<DOMAIN>`):
+
+- **Topics → bjj.events.raw → Messages**: as mensagens com chave, partição e offset
+- **Topics → bjj.events.raw → Statistics**: clique em **Start Analysis** para ler o tópico inteiro e ver tamanhos e distribuição por partição (antes disso a aba avisa que não há análise, um 404)
+- **Consumers**: cada grupo e quanto falta ele ler (*lag*)
+- **Brokers → 1 → Metrics**: as métricas do broker, que o Kafka UI lê por JMX na porta 9101 (só na rede interna dos containers)
 
 Pela linha de comando, na VM, na pasta do projeto:
 
