@@ -217,6 +217,9 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+      # Métricas por JMX para o Kafka UI (só na rede interna, sem porta na VM).
+      KAFKA_JMX_PORT: "9101"
+      KAFKA_JMX_HOSTNAME: kafka
     ports:
       - "127.0.0.1:9094:9094"
     volumes:
@@ -250,6 +253,8 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: crawler
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_METRICS_TYPE: JMX
+      KAFKA_CLUSTERS_0_METRICS_PORT: "9101"
       AUTH_TYPE: LOGIN_FORM
       SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:-admin}
       SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?defina KAFKA_UI_PASSWORD no .env}
