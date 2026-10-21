@@ -15,16 +15,29 @@ services:
   airflow-scheduler:
     environment:
       AIRFLOW__CORE__PARALLELISM: "2"
+      # Sem Kafka neste perfil: a DAG não cria a task publish.
+      KAFKA_BOOTSTRAP_SERVERS: ""
     mem_limit: 2g
 
   airflow-dag-processor:
     environment:
       AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES: "1"
+      KAFKA_BOOTSTRAP_SERVERS: ""
     mem_limit: 512m
 
   # Nenhuma DAG usa tasks deferrable; o triggerer só sobe com --profile triggerer.
   airflow-triggerer:
     profiles: ["triggerer"]
+
+  # Kafka, kafka-init e Kafka UI juntos pedem uns 2 GB; só sobem com --profile kafka.
+  kafka:
+    profiles: ["kafka"]
+
+  kafka-init:
+    profiles: ["kafka"]
+
+  kafka-ui:
+    profiles: ["kafka"]
 
   caddy:
     mem_limit: 128m

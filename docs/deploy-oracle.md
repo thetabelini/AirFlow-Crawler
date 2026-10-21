@@ -92,6 +92,7 @@ AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
 WEB_DB_PASSWORD=$(openssl rand -hex 16)
 WEB_USERS=felipe:$(openssl rand -hex 8)
+KAFKA_UI_PASSWORD=$(openssl rand -hex 12)
 EOF
 chmod 600 .env
 cat .env      # anote DOMAIN e AIRFLOW_ADMIN_PASSWORD
@@ -107,7 +108,7 @@ echo "COMPOSE_FILE=docker-compose.yml:docker-compose.small.yml" >> .env
 
 Medido com a DAG do BJJ rodando, a stack usa cerca de 1,3 GB. Quando a VM crescer, apague essa linha do `.env` e rode `docker compose up -d`.
 
-O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe com `docker compose ps` até todos ficarem `healthy` (o `db-init` e o `airflow-init` aparecem como `exited (0)`, o que é o esperado).
+O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe com `docker compose ps` até todos ficarem `healthy` (o `db-init`, o `airflow-init` e o `kafka-init` aparecem como `exited (0)`, o que é o esperado).
 
 **Domínio:** `<ip-com-traços>.sslip.io` é um endereço gratuito que aponta para o IP da VM, e o Caddy consegue emitir um certificado HTTPS válido para ele. Se tiver um domínio próprio, crie um registro `A` apontando para o IP e use-o no `DOMAIN`.
 
@@ -115,6 +116,7 @@ O primeiro build leva alguns minutos (numa VM de 1 OCPU, uns 15 a 20). Acompanhe
 
 Abra `https://<DOMAIN>` e entre com `admin` e a `AIRFLOW_ADMIN_PASSWORD`.
 A tela de dados fica em `https://dados.<DOMAIN>` (no Airflow: menu **Plugins → Dados coletados**), com o usuário e a senha de `WEB_USERS`.
+O Kafka UI fica em `https://kafka.<DOMAIN>`, com `admin` e a `KAFKA_UI_PASSWORD` (veja [kafka.md](kafka.md)).
 Ative a DAG `bjj__soucompetidor` e clique em **Trigger** para a primeira coleta. Depois disso ela roda sozinha uma vez por dia.
 
 Conferir os dados:

@@ -1,4 +1,4 @@
-"""Links no menu do Airflow para a tela e a API de dados (serviço web)."""
+"""Links no menu do Airflow para a tela e a API de dados (serviço web) e para o Kafka UI."""
 
 import os
 
@@ -15,4 +15,5 @@ class LinksPlugin(AirflowPlugin):
     external_views = [
         {"name": "Dados coletados", "href": f"https://dados.{DOMAIN}/", "destination": "nav"},
         {"name": "API de dados", "href": f"https://dados.{DOMAIN}/docs", "destination": "nav"},
+        {"name": "Kafka UI", "href": f"https://kafka.{DOMAIN}/", "destination": "nav"},
     ]

@@ -1,13 +1,18 @@
 """Gera uma DAG <projeto>__<fonte> para cada bloco de projects/<projeto>/sources.yaml."""
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 from airflow.sdk import dag, get_current_context, task
 
+from core import stream
 from core.projects import Source, load_all_sources
 
 log = logging.getLogger(__name__)
+
+# Desligue (false) quando um consumidor do Kafka passar a gravar no banco no lugar da DAG.
+WRITE_DB = os.environ.get("CRAWLER_WRITE_DB", "true").strip().lower() != "false"
 
 
 def build_dag(source: Source):
@@ -75,7 +80,22 @@ def build_dag(source: Source):
                 log.info("novo: %s", item.get("name") or item)
             return len(new_items)
 
-        upsert_notify(normalize(parse(fetch_listing())))
+        @task
+        def publish(items: list[dict]) -> int:
+            context = get_current_context()
+            started_at = context["dag_run"].start_date or datetime.now(timezone.utc)
+            sent = stream.publish_run(
+                source.project, source.name, context["run_id"], started_at, items
+            )
+            log.info("%s: %d itens publicados em %s", source.dag_id, sent, stream.topics(source.project)["raw"])
+            return sent
+
+        items = normalize(parse(fetch_listing()))
+        # As duas rodam em paralelo, cada uma com as próprias tentativas.
+        if WRITE_DB:
+            upsert_notify(items)
+        if stream.enabled():
+            publish(items)
 
     return crawl()
 
